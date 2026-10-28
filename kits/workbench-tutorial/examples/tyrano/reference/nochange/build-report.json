@@ -1,0 +1,10 @@
+{
+  "units": 3,
+  "changed": 0,
+  "status": "built_structurally_verified_not_runtime_tested",
+  "files": 1,
+  "manifest_sha256": "2fd13610abd1769d54ca045fa25f981f19f1806af194494cfa6e8b392aa13e46",
+  "files_sha256": {
+    "data/scenario/demo.ks": "339f11e1268610101dcf1e80b0c3adaca3cd1a1ac25cde2b7a2bf38d418f39b8"
+  }
+}

@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<LDB>
+  <Database>
+    <actors>
+      <Actor id="1"><name>Neutral Actor</name><title>Visitor</title><initial_level>3</initial_level></Actor>
+    </actors>
+    <items>
+      <Item id="1"><name>Neutral Item</name><description>A neutral description.</description></Item>
+    </items>
+    <terms><Terms><new_game>Start</new_game><load_game>Continue</load_game><exit_game>Exit</exit_game></Terms></terms>
+  </Database>
+</LDB>

@@ -1,0 +1,14 @@
+WORKBENCH-TEXT-v1
+BASELINE=2fd13610abd1769d54ca045fa25f981f19f1806af194494cfa6e8b392aa13e46
+
+ID=data/scenario/demo.ks:00001
+TEXT=Clerk
+NOTE=
+
+ID=data/scenario/demo.ks:00002
+TEXT=Welcome.{{CTRL0001}}{{CTRL0002}}Please enter.{{CTRL0003}}
+NOTE=
+
+ID=data/scenario/demo.ks:00003
+TEXT=Confirm
+NOTE=

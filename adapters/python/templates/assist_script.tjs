@@ -1,0 +1,205 @@
+// Standard KAG3 variable bridge. The launch-session file activates IPC.
+class PinHaoAssistReader {
+    var text, pos = 0;
+    function PinHaoAssistReader(value) { text = value; }
+    function whitespace() {
+        while(pos < text.length && text.charAt(pos) <= " ") pos++;
+    }
+    function stringValue() {
+        pos++;
+        var result = "";
+        while(pos < text.length) {
+            var c = text.charAt(pos++);
+            if(c == '"') return result;
+            if(c == "\\") {
+                c = text.charAt(pos++);
+                if(c == "u") { result += $(int("0x" + text.substr(pos, 4))); pos += 4; }
+                else if(c == "n") result += "\n";
+                else if(c == "r") result += "\r";
+                else if(c == "t") result += "\t";
+                else if(c == "b") result += "\b";
+                else if(c == "f") result += "\f";
+                else result += c;
+            } else result += c;
+        }
+        throw new Exception("Incomplete JSON string");
+    }
+    function read() {
+        whitespace();
+        var c = text.charAt(pos);
+        if(c == '"') return stringValue();
+        if(c == "{") {
+            pos++;
+            var result = %[];
+            whitespace();
+            if(text.charAt(pos) == "}") { pos++; return result; }
+            while(pos < text.length) {
+                whitespace();
+                if(text.charAt(pos) != '"') throw new Exception("Invalid JSON key");
+                var key = stringValue(); whitespace();
+                if(text.charAt(pos++) != ":") throw new Exception("Invalid JSON member");
+                result[key] = read(); whitespace();
+                c = text.charAt(pos++);
+                if(c == "}") return result;
+                if(c != ",") throw new Exception("Invalid JSON object");
+            }
+        }
+        throw new Exception("Expected JSON object or string");
+    }
+}
+
+class PinHaoAssistTagged {
+    var bytes, pos = 0;
+    function PinHaoAssistTagged(hex) {
+        bytes = [];
+        if(hex.length % 2) throw new Exception("Invalid command encoding");
+        for(var i = 0; i < hex.length; i += 2) bytes.add(int("0x" + hex.substr(i, 2)));
+    }
+    function count(separator) {
+        var value = "";
+        while(pos < bytes.count && bytes[pos] != separator) {
+            if(bytes[pos] < 48 || bytes[pos] > 57) throw new Exception("Invalid parameter length");
+            value += $bytes[pos++];
+        }
+        if(pos >= bytes.count || value.length == 0 || value.length > 7) throw new Exception("Invalid parameter length");
+        pos++;
+        return int(value);
+    }
+    function utf8(length) {
+        var end = pos + length, result = "";
+        if(end > bytes.count) throw new Exception("Incomplete string");
+        while(pos < end) {
+            var c = bytes[pos++], code = c, extra = 0;
+            if(c >= 0xf0) { code = c & 7; extra = 3; }
+            else if(c >= 0xe0) { code = c & 15; extra = 2; }
+            else if(c >= 0xc0) { code = c & 31; extra = 1; }
+            if(pos + extra > end) throw new Exception("Invalid UTF8");
+            while(extra--) code = (code << 6) | (bytes[pos++] & 63);
+            if(code >= 65536) { code -= 65536; result += $(0xd800 | (code >> 10)); result += $(0xdc00 | (code & 1023)); }
+            else result += $code;
+        }
+        return result;
+    }
+    function read(depth = 0) {
+        if(depth > 10 || pos >= bytes.count) throw new Exception("Invalid parameter nesting");
+        var tag = $bytes[pos++];
+        if(tag == "n") return void;
+        if(tag == "t") return true;
+        if(tag == "f") return false;
+        if(tag == "d") {
+            var number = "";
+            while(pos < bytes.count && bytes[pos] != 59) number += $bytes[pos++];
+            if(pos >= bytes.count) throw new Exception("Invalid parameter number");
+            pos++;
+            return +number;
+        }
+        var length = count(58);
+        if(length > 1048576) throw new Exception("Parameter too large");
+        if(tag == "s") return utf8(length);
+        if(tag != "o" && tag != "a") throw new Exception("Invalid parameter tag");
+        var result = tag == "o" ? %[] : [];
+        for(var i = 0; i < length; i++) {
+            if(tag == "a") result.add(read(depth + 1));
+            else { var key = read(depth + 1); result[key] = read(depth + 1); }
+        }
+        return result;
+    }
+}
+
+class PinHaoAssistBridge {
+    var directory, token, session, completed, completedOrder, flags, timer;
+    function PinHaoAssistBridge(config) {
+        directory = config.directory.replace(/\\/g, "/") + "/";
+        token = config.token;
+        session = string(System.getTickCount()) + "-" + string(Math.random());
+        completed = %[]; completedOrder = [];
+        timer = new Timer(this, "poll"); timer.interval = 700; timer.enabled = true;
+    }
+    function quote(value) {
+        var result = '"';
+        for(var i = 0; i < value.length; i++) {
+            var c = value.charAt(i), code = #c;
+            if(c == '"' || c == "\\") result += "\\" + c;
+            else if(code < 32 || code >= 127) {
+                var digits = "0123456789abcdef";
+                var hex = digits.charAt((code >> 12) & 15) + digits.charAt((code >> 8) & 15) + digits.charAt((code >> 4) & 15) + digits.charAt(code & 15);
+                result += "\\u" + hex;
+            } else result += c;
+        }
+        return result + '"';
+    }
+    function kind(value) {
+        var type = typeof value;
+        if(type == "String" && value.length <= 2000) return "string";
+        if((type == "Integer" || type == "Real") && value == value && Math.abs(value) <= 9007199254740991) return "number";
+        return "";
+    }
+    function names(target, scope, store) {
+        var pairs = []; pairs.assign(target);
+        var rows = [];
+        for(var i = 0; i < pairs.count; i += 2) {
+            var name = string(pairs[i]), value = target[name], type = kind(value);
+            if(type != "") rows.add(%[scope:scope, store:store, name:name, type:type, value:value]);
+        }
+        return rows;
+    }
+    function variableJson(row) {
+        return '{"scope":' + quote(row.scope) + ',"persistence":' + quote(row.scope == "persistent" ? "persistent" : "game-save") + ',"store":' + quote(row.store) + ',"name":' + quote(row.name) + ',"type":' + quote(row.type) + ',"value":' + (row.type == "string" ? quote(row.value) : string(row.value)) + '}';
+    }
+    function poll() {
+        try {
+            if(typeof global.kag == "undefined") return;
+            if(flags !== kag.flags) {
+                flags = kag.flags; session = string(System.getTickCount()) + "-" + string(Math.random());
+                completed = %[]; completedOrder = [];
+            }
+            var lines = []; lines.load(directory + "commands.txt");
+            if(lines.count == 0 || lines[0] != token) return;
+            var results = [];
+            for(var i = 1; i < lines.count; i++) {
+                if(lines[i] == "") continue;
+                var parts = []; parts.split("\t", lines[i]);
+                var id = parts[0], result = completed[id];
+                if(result === void) {
+                    result = '{"id":' + quote(id);
+                    try {
+                        if(parts.count != 6 || parts[1] != "setNamedVariable" || parts[4] != "tagged") throw new Exception("Select a named variable");
+                        var decoder = new PinHaoAssistTagged(parts[5]);
+                        var payload = decoder.read(), params = payload.params;
+                        if(decoder.pos != decoder.bytes.count || params.gameSessionId != session) throw new Exception("Refresh variables after loading a save");
+                        var target;
+                        if(params.scope == "store" && params.store == "f") target = kag.flags;
+                        else if(params.scope == "persistent" && params.store == "sf") target = kag.sflags;
+                        else throw new Exception("Select an existing variable scope");
+                        var type = kind(target[params.name]);
+                        if(type == "" || type != kind(payload.value)) throw new Exception("Keep the selected variable type");
+                        var old = target[params.name]; target[params.name] = payload.value;
+                        if(params.scope == "persistent") {
+                            try { kag.saveSystemVariables(); }
+                            catch(e) { target[params.name] = old; throw e; }
+                        }
+                    } catch(e) { result += ',"error":' + quote(e.message); }
+                    result += '}'; completed[id] = result; completedOrder.add(id);
+                    if(completedOrder.count > 100) { delete completed[completedOrder[0]]; completedOrder.erase(0); }
+                }
+                results.add(result);
+            }
+            var rows = names(kag.flags, "store", "f"), system = names(kag.sflags, "persistent", "sf"), encoded = [];
+            for(var i = 0; i < rows.count; i++) encoded.add(variableJson(rows[i]));
+            for(var i = 0; i < system.count; i++) encoded.add(variableJson(system[i]));
+            var output = ['{"token":' + quote(token) + ',"state":{"ready":true,"engine":"KiriKiri/KAG","mode":"live","actions":["setNamedVariable"],"gameSessionId":' + quote(session) + ',"namedVariables":[' + encoded.join(",") + ']},"results":[' + results.join(",") + ']}'];
+            output.save(directory + "state.json");
+        } catch(e) { Debug.message("PinHao assist: " + e.message); }
+    }
+}
+
+if(typeof global.PinhaoScriptAssist == "undefined") {
+    var pinhaoSession = System.exePath + "PinHao-assist-session.json";
+    if(Storages.isExistentStorage(pinhaoSession)) {
+        try {
+            var pinhaoLines = []; pinhaoLines.load(pinhaoSession);
+            var pinhaoConfig = (new PinHaoAssistReader(pinhaoLines.join("\n"))).read();
+            if(typeof pinhaoConfig.directory == "String" && pinhaoConfig.directory.length > 0 && typeof pinhaoConfig.token == "String" && pinhaoConfig.token.length > 0) global.PinhaoScriptAssist = new PinHaoAssistBridge(pinhaoConfig);
+        } catch(e) { Debug.message("PinHao assist: " + e.message); }
+    }
+}

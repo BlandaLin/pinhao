@@ -1,0 +1,29 @@
+{
+  "gameTitle": "Demo",
+  "currencyUnit": "Coin",
+  "elements": [
+    "",
+    "Fire",
+    null
+  ],
+  "terms": {
+    "basic": [
+      "Level"
+    ],
+    "commands": [
+      "Fight",
+      null
+    ],
+    "messages": {
+      "victory": "%1 wins!"
+    }
+  },
+  "variables": [
+    "",
+    "InternalVariable"
+  ],
+  "switches": [
+    "",
+    "InternalSwitch"
+  ]
+}

@@ -1,0 +1,13 @@
+{
+  "units": 18,
+  "changed": 18,
+  "status": "built_structurally_verified_not_runtime_tested",
+  "files": 4,
+  "manifest_sha256": "064080b259656162ec1651959eb989b9a7315d92585a5252df0bd92ae42a7cdc",
+  "files_sha256": {
+    "data/Actors.json": "5547f5184f93a5bf56c1cb6a9c41767b97f0bdfac30685551182474bf9cd8306",
+    "data/CustomPlugin.json": "03c73f362521559018c584a0a32670e28a1293ae5d01e67aeb9c7dbf3ba6bab8",
+    "data/Map001.json": "e13696c3335d53cfbe882dc399f0b1fabc57fc6f400680f94ec9a11c0461d556",
+    "data/System.json": "0343e451b477e39039293d76228dfa5fc3f023a60cbda24f095aafd3e26a84cf"
+  }
+}

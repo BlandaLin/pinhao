@@ -1,0 +1,16 @@
+{
+  "schema": "rpgmaker-ai-patch-v1",
+  "baseline_sha256": "9c51f30b0b2028c640da1dddd7308c356eab5653c9802c7d6f344e0f33510587",
+  "changes": [
+    {
+      "id": "game/tl/schinese/demo.rpy:00001",
+      "translation": "您好，{{CTRL0001}}。",
+      "notes": "Neutral tutorial reference; valid alternative wording is allowed."
+    },
+    {
+      "id": "game/tl/schinese/demo.rpy:00002",
+      "translation": "继续",
+      "notes": "Neutral tutorial reference; valid alternative wording is allowed."
+    }
+  ]
+}

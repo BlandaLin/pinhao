@@ -1,0 +1,327 @@
+{
+  "stage": "translation",
+  "changed_records": 18,
+  "changes": [
+    {
+      "id": "Actors:00001",
+      "source": "Lin",
+      "context": {
+        "record": 1,
+        "field": "name"
+      },
+      "before": "Lin",
+      "after": "林川",
+      "notes_before": "",
+      "notes_after": ""
+    },
+    {
+      "id": "Actors:00002",
+      "source": "A traveler.{{CTRL0001}}A new arrival.",
+      "context": {
+        "record": 1,
+        "field": "profile"
+      },
+      "before": "A traveler.{{CTRL0001}}A new arrival.",
+      "after": "她是一名旅人。{{CTRL0001}}初来此地。",
+      "notes_before": "",
+      "notes_after": ""
+    },
+    {
+      "id": "Map001:00001",
+      "source": "Inn",
+      "context": {
+        "map": "Map001"
+      },
+      "before": "Inn",
+      "after": "旅馆",
+      "notes_before": "",
+      "notes_after": ""
+    },
+    {
+      "id": "Map001:00002",
+      "source": "Clerk",
+      "context": {
+        "map": "Map001",
+        "event": 1,
+        "page": 0,
+        "x": 2,
+        "y": 4,
+        "command": 0,
+        "code": 101,
+        "indent": 0,
+        "branch_path": [],
+        "line_count": 2,
+        "face": "",
+        "speaker": "Clerk"
+      },
+      "before": "Clerk",
+      "after": "前台员工",
+      "notes_before": "",
+      "notes_after": ""
+    },
+    {
+      "id": "Map001:00003",
+      "source": "Hello, {{CTRL0001}}.{{LINE0001}}Come this way.",
+      "context": {
+        "map": "Map001",
+        "event": 1,
+        "page": 0,
+        "x": 2,
+        "y": 4,
+        "command": 0,
+        "code": 101,
+        "indent": 0,
+        "branch_path": [],
+        "line_count": 2,
+        "face": "",
+        "speaker": "Clerk"
+      },
+      "before": "Hello, {{CTRL0001}}.{{LINE0001}}Come this way.",
+      "after": "你好，{{CTRL0001}}。{{LINE0001}}到这边来。",
+      "notes_before": "",
+      "notes_after": ""
+    },
+    {
+      "id": "Map001:00004",
+      "source": "Yes",
+      "context": {
+        "map": "Map001",
+        "event": 1,
+        "page": 0,
+        "x": 2,
+        "y": 4,
+        "command": 3,
+        "code": 102,
+        "indent": 0,
+        "branch_path": [],
+        "choice": 0
+      },
+      "before": "Yes",
+      "after": "是",
+      "notes_before": "",
+      "notes_after": ""
+    },
+    {
+      "id": "Map001:00005",
+      "source": "No",
+      "context": {
+        "map": "Map001",
+        "event": 1,
+        "page": 0,
+        "x": 2,
+        "y": 4,
+        "command": 3,
+        "code": 102,
+        "indent": 0,
+        "branch_path": [],
+        "choice": 1
+      },
+      "before": "No",
+      "after": "否",
+      "notes_before": "",
+      "notes_after": ""
+    },
+    {
+      "id": "Map001:00006",
+      "source": "Clerk",
+      "context": {
+        "map": "Map001",
+        "event": 1,
+        "page": 0,
+        "x": 2,
+        "y": 4,
+        "command": 5,
+        "code": 101,
+        "indent": 1,
+        "branch_path": [
+          {
+            "type": "choice",
+            "index": 0,
+            "label": "Yes"
+          }
+        ],
+        "line_count": 1,
+        "face": "",
+        "speaker": "Clerk"
+      },
+      "before": "Clerk",
+      "after": "前台员工",
+      "notes_before": "",
+      "notes_after": ""
+    },
+    {
+      "id": "Map001:00007",
+      "source": "Thank you.",
+      "context": {
+        "map": "Map001",
+        "event": 1,
+        "page": 0,
+        "x": 2,
+        "y": 4,
+        "command": 5,
+        "code": 101,
+        "indent": 1,
+        "branch_path": [
+          {
+            "type": "choice",
+            "index": 0,
+            "label": "Yes"
+          }
+        ],
+        "line_count": 1,
+        "face": "",
+        "speaker": "Clerk"
+      },
+      "before": "Thank you.",
+      "after": "谢谢。",
+      "notes_before": "",
+      "notes_after": ""
+    },
+    {
+      "id": "Map001:00008",
+      "source": "Clerk",
+      "context": {
+        "map": "Map001",
+        "event": 1,
+        "page": 0,
+        "x": 2,
+        "y": 4,
+        "command": 8,
+        "code": 101,
+        "indent": 1,
+        "branch_path": [
+          {
+            "type": "choice",
+            "index": 1,
+            "label": "No"
+          }
+        ],
+        "line_count": 1,
+        "face": "",
+        "speaker": "Clerk"
+      },
+      "before": "Clerk",
+      "after": "前台员工",
+      "notes_before": "",
+      "notes_after": ""
+    },
+    {
+      "id": "Map001:00009",
+      "source": "Goodbye.",
+      "context": {
+        "map": "Map001",
+        "event": 1,
+        "page": 0,
+        "x": 2,
+        "y": 4,
+        "command": 8,
+        "code": 101,
+        "indent": 1,
+        "branch_path": [
+          {
+            "type": "choice",
+            "index": 1,
+            "label": "No"
+          }
+        ],
+        "line_count": 1,
+        "face": "",
+        "speaker": "Clerk"
+      },
+      "before": "Goodbye.",
+      "after": "再见。",
+      "notes_before": "",
+      "notes_after": ""
+    },
+    {
+      "id": "Map001:00010",
+      "source": "Lin",
+      "context": {
+        "map": "Map001",
+        "event": 1,
+        "page": 0,
+        "x": 2,
+        "y": 4,
+        "command": 11,
+        "code": 320,
+        "indent": 0,
+        "branch_path": [],
+        "actor_id": 1
+      },
+      "before": "Lin",
+      "after": "林川",
+      "notes_before": "",
+      "notes_after": ""
+    },
+    {
+      "id": "System:00001",
+      "source": "Demo",
+      "context": {
+        "field": "gameTitle"
+      },
+      "before": "Demo",
+      "after": "工作台示例",
+      "notes_before": "",
+      "notes_after": ""
+    },
+    {
+      "id": "System:00002",
+      "source": "Coin",
+      "context": {
+        "field": "currencyUnit"
+      },
+      "before": "Coin",
+      "after": "金币",
+      "notes_before": "",
+      "notes_after": ""
+    },
+    {
+      "id": "System:00003",
+      "source": "Fire",
+      "context": {
+        "field": "elements",
+        "index": 1
+      },
+      "before": "Fire",
+      "after": "火",
+      "notes_before": "",
+      "notes_after": ""
+    },
+    {
+      "id": "System:00004",
+      "source": "Level",
+      "context": {
+        "field": "basic",
+        "index": 0
+      },
+      "before": "Level",
+      "after": "等级",
+      "notes_before": "",
+      "notes_after": ""
+    },
+    {
+      "id": "System:00005",
+      "source": "Fight",
+      "context": {
+        "field": "commands",
+        "index": 0
+      },
+      "before": "Fight",
+      "after": "战斗",
+      "notes_before": "",
+      "notes_after": ""
+    },
+    {
+      "id": "System:00006",
+      "source": "{{CTRL0001}} wins!",
+      "context": {
+        "field": "messages",
+        "index": "victory"
+      },
+      "before": "{{CTRL0001}} wins!",
+      "after": "{{CTRL0001}}获胜了！",
+      "notes_before": "",
+      "notes_after": ""
+    }
+  ]
+}

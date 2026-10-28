@@ -1,0 +1,28 @@
+{
+  "stage": "polishing",
+  "changed_records": 1,
+  "changes": [
+    {
+      "id": "Map001:00003",
+      "source": "Hello, {{CTRL0001}}.{{LINE0001}}Come this way.",
+      "context": {
+        "map": "Map001",
+        "event": 1,
+        "page": 0,
+        "x": 2,
+        "y": 4,
+        "command": 0,
+        "code": 101,
+        "indent": 0,
+        "branch_path": [],
+        "line_count": 2,
+        "face": "",
+        "speaker": "Clerk"
+      },
+      "before": "你好，{{CTRL0001}}。{{LINE0001}}到这边来。",
+      "after": "您好，{{CTRL0001}}。{{LINE0001}}请这边走。",
+      "notes_before": "",
+      "notes_after": "调整礼貌与句法；保留动态姓名、分行和引导含义。"
+    }
+  ]
+}

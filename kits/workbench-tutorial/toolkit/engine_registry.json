@@ -1,0 +1,19 @@
+{
+  "schema": "kickstart-engine-registry-v1",
+  "engines": {
+    "rpgmaker": {"name": "RPG Maker MV/MZ/VX Ace", "level": "standard_native_data", "profile": "rpgmaker", "demo": "rpgmaker", "guide": "guides/rpgmaker.md", "remaining": ["plugins", "images", "fonts", "old_saves", "runtime"]},
+    "rpgmaker-legacy": {"name": "RPG Maker XP/VX", "level": "detect_unpack_recipe", "profile": null, "demo": "legacy-detection", "guide": "guides/rpgmaker-legacy.md", "remaining": ["legacy_encoding", "native_reinsertion", "runtime"]},
+    "rpgmaker-lcf": {"name": "RPG Maker 2000/2003", "level": "external_bridge_recipe", "profile": "json-selected", "demo": "json-selected", "guide": "guides/rpgmaker-lcf.md", "remaining": ["LCF_export_import", "codepages", "runtime"]},
+    "renpy": {"name": "RenPy", "level": "native_template_and_RPA", "profile": "renpy-template", "demo": "renpy-template", "guide": "guides/renpy.md", "remaining": ["RPYC_decompilation", "SDK_template_generation", "fonts", "lint", "runtime"]},
+    "tyrano": {"name": "TyranoScript/TyranoBuilder", "level": "source_subset", "profile": "tyrano", "demo": "tyrano", "guide": "guides/tyrano.md", "remaining": ["packed_distribution", "macros", "embedded_JS_HTML", "images", "runtime"]},
+    "kirikiri": {"name": "Kirikiri/KAG", "level": "source_subset_external_XP3", "profile": "kirikiri", "demo": "kirikiri", "guide": "guides/kirikiri.md", "remaining": ["XP3_unpack", "KAG_macro_differences", "encoding", "TJS", "runtime"]},
+    "twine": {"name": "Twine/Twee/SugarCube", "level": "source_subset", "profile": "twee", "demo": "twine-html", "guide": "guides/twine.md", "remaining": ["Harlowe", "macro_embedded_labels", "JS", "runtime"]},
+    "pgmm": {"name": "Pixel Game Maker MV", "level": "project_JSON", "profile": "pgmm", "demo": "pgmm", "guide": "guides/pgmm.md", "remaining": ["packed_player_resources", "fonts", "images", "runtime"]},
+    "wolf": {"name": "WOLF RPG Editor", "level": "WolfTL_JSON_bridge", "profile": "wolf-export", "demo": "wolf-export", "guide": "guides/wolf.md", "remaining": ["native_unpack_export_import", "version", "DB_selection", "font_symbols", "old_saves", "runtime"]},
+    "unity": {"name": "Unity/Unity-based VN engines", "level": "optional_TextAsset_inventory_explicit_JSON_bridge", "profile": "json-selected", "demo": "json-selected", "guide": "guides/unity.md", "remaining": ["UnityPy", "typed_asset_selection", "IL2CPP_Mono", "native_import", "fonts", "runtime"]},
+    "godot": {"name": "Godot", "level": "CSV_PO_interchange_external_PCK", "profile": "godot-csv", "demo": "godot-csv", "guide": "guides/godot.md", "remaining": ["PCK_recovery", "translation_resource_import", "runtime"]},
+    "unreal": {"name": "Unreal Engine", "level": "PO_interchange_external_locres", "profile": "gettext-po", "demo": "gettext-po", "guide": "guides/unreal.md", "remaining": ["PAK_IoStore", "locres_conversion", "native_import", "runtime"]},
+    "gamemaker": {"name": "GameMaker", "level": "detect_external_bridge_recipe", "profile": "json-selected", "demo": "json-selected", "guide": "guides/gamemaker.md", "remaining": ["data_win_export_import", "bytecode", "runtime"]},
+    "nscripter": {"name": "NScripter/ONScripter", "level": "detect_external_recipe", "profile": null, "demo": "nscripter-detection", "guide": "guides/nscripter.md", "remaining": ["script_obfuscation", "mixed_command_prose_grammar", "encoding", "runtime"]}
+  }
+}

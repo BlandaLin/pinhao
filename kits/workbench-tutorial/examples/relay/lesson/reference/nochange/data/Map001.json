@@ -1,0 +1,142 @@
+{
+  "displayName": "Inn",
+  "data": [
+    1,
+    2,
+    3
+  ],
+  "events": [
+    null,
+    {
+      "id": 1,
+      "name": "InternalEvent",
+      "x": 2,
+      "y": 4,
+      "pages": [
+        {
+          "conditions": {
+            "switch1Id": 1
+          },
+          "list": [
+            {
+              "code": 101,
+              "parameters": [
+                "",
+                0,
+                0,
+                2,
+                "Clerk"
+              ],
+              "indent": 0
+            },
+            {
+              "code": 401,
+              "parameters": [
+                "Hello, \\N[1]."
+              ],
+              "indent": 0
+            },
+            {
+              "code": 401,
+              "parameters": [
+                "Come this way."
+              ],
+              "indent": 0
+            },
+            {
+              "code": 102,
+              "parameters": [
+                [
+                  "Yes",
+                  "No"
+                ],
+                0,
+                0,
+                2,
+                0
+              ],
+              "indent": 0
+            },
+            {
+              "code": 402,
+              "parameters": [
+                0,
+                "Yes"
+              ],
+              "indent": 0
+            },
+            {
+              "code": 101,
+              "parameters": [
+                "",
+                0,
+                0,
+                2,
+                "Clerk"
+              ],
+              "indent": 1
+            },
+            {
+              "code": 401,
+              "parameters": [
+                "Thank you."
+              ],
+              "indent": 1
+            },
+            {
+              "code": 402,
+              "parameters": [
+                1,
+                "No"
+              ],
+              "indent": 0
+            },
+            {
+              "code": 101,
+              "parameters": [
+                "",
+                0,
+                0,
+                2,
+                "Clerk"
+              ],
+              "indent": 1
+            },
+            {
+              "code": 401,
+              "parameters": [
+                "Goodbye."
+              ],
+              "indent": 1
+            },
+            {
+              "code": 404,
+              "parameters": [],
+              "indent": 0
+            },
+            {
+              "code": 320,
+              "parameters": [
+                1,
+                "Lin"
+              ],
+              "indent": 0
+            },
+            {
+              "code": 355,
+              "parameters": [
+                "never_execute_this()"
+              ],
+              "indent": 0
+            },
+            {
+              "code": 0,
+              "parameters": [],
+              "indent": 0
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

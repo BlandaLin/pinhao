@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<LMU>
+  <Map>
+    <width>2</width><height>2</height>
+    <events>
+      <Event id="1"><name>InternalEvent</name><x>1</x><y>1</y><pages>
+        <EventPage id="1"><event_commands>
+          <EventCommand><code>10110</code><indent>0</indent><string>Neutral first line.</string><parameters></parameters></EventCommand>
+          <EventCommand><code>20110</code><indent>0</indent><string>Neutral second line.</string><parameters></parameters></EventCommand>
+        </event_commands></EventPage>
+      </pages></Event>
+    </events>
+  </Map>
+</LMU>

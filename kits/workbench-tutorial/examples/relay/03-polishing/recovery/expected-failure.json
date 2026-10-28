@@ -1,0 +1,9 @@
+{
+  "status": "rejected_as_expected",
+  "exception": "ValueError",
+  "error": "Changed placeholder count/order: Map001:00003",
+  "id": "Map001:00003",
+  "missing_token": "{{LINE0001}}",
+  "repaired_return": "../reference/return-text.txt",
+  "successful_build_created": false
+}

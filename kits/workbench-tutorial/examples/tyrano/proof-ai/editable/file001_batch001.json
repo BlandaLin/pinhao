@@ -1,0 +1,48 @@
+{
+  "schema": "rpgmaker-ai-units-v1",
+  "units": [
+    {
+      "id": "data/scenario/demo.ks:00001",
+      "kind": "speaker_name",
+      "source": "Clerk",
+      "translation": "前台员工",
+      "source_preview": "Clerk",
+      "tokens": [],
+      "context": {
+        "label": "*start"
+      },
+      "notes": "Neutral tutorial reference; valid alternative wording is allowed."
+    },
+    {
+      "id": "data/scenario/demo.ks:00002",
+      "kind": "paragraph",
+      "source": "Welcome.{{CTRL0001}}{{CTRL0002}}Please enter.{{CTRL0003}}",
+      "translation": "欢迎光临。{{CTRL0001}}{{CTRL0002}}请进。{{CTRL0003}}",
+      "source_preview": "Welcome.[l]\nPlease enter.[p]",
+      "tokens": [
+        "{{CTRL0001}}",
+        "{{CTRL0002}}",
+        "{{CTRL0003}}"
+      ],
+      "context": {
+        "speaker": "Clerk",
+        "label": "*start",
+        "line": 3
+      },
+      "notes": "Neutral tutorial reference; valid alternative wording is allowed."
+    },
+    {
+      "id": "data/scenario/demo.ks:00003",
+      "kind": "display_attribute",
+      "source": "Confirm",
+      "translation": "确认",
+      "source_preview": "Confirm",
+      "tokens": [],
+      "context": {
+        "attribute": "text",
+        "label": "*start"
+      },
+      "notes": "Neutral tutorial reference; valid alternative wording is allowed."
+    }
+  ]
+}

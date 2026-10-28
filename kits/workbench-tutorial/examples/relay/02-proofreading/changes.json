@@ -1,0 +1,18 @@
+{
+  "stage": "proofreading",
+  "changed_records": 1,
+  "changes": [
+    {
+      "id": "Actors:00002",
+      "source": "A traveler.{{CTRL0001}}A new arrival.",
+      "context": {
+        "record": 1,
+        "field": "profile"
+      },
+      "before": "她是一名旅人。{{CTRL0001}}初来此地。",
+      "after": "一名旅人。{{CTRL0001}}初来此地。",
+      "notes_before": "",
+      "notes_after": "按角色资料移除错误的女性代词；保留自然省略。"
+    }
+  ]
+}

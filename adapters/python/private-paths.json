@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "directoryNames": [".git", ".svn", "mtool_data", "mtoolcache", "local storage", "session storage", "indexeddb", "crashpad", "crashreports", "gpucache"],
+  "rootDirectories": ["save", "saves", "save_mtool", "savedata", "savegames", "mtool"],
+  "directoryPaths": ["www/save", "game/saves"],
+  "files": ["config.rpgsave", "global.rpgsave", "config.rmmzsave", "global.rmmzsave", "config.rvdata2", "global.rvdata2", "error.log", "game.log", "manualtransfile.json", "translationlog.txt", "desktop.ini", "thumbs.db", "mtool.exe", "mtool.dll", "uberwolfconfig.json", "persistent", "persistent.new", "pinhao-assist-session.json"],
+  "extensions": [".rpgsave", ".rmmzsave", ".rvdata2save", ".rxsave", ".rvsave", ".lsd", ".sav", ".save", ".dmp", ".log"],
+  "prefixes": ["manualtransfile_", "autotransfile_", "mtool_", ".env"],
+  "suffixes": [".tmp", ".bak"],
+  "fileNamePatterns": ["^(?:save|file)\\d+\\.(?:rxdata|rvdata|rvdata2|dat|sav)$"]
+}

@@ -1,0 +1,29 @@
+{
+  "gameTitle": "工作台示例",
+  "currencyUnit": "金币",
+  "elements": [
+    "",
+    "火",
+    null
+  ],
+  "terms": {
+    "basic": [
+      "等级"
+    ],
+    "commands": [
+      "战斗",
+      null
+    ],
+    "messages": {
+      "victory": "%1获胜了！"
+    }
+  },
+  "variables": [
+    "",
+    "InternalVariable"
+  ],
+  "switches": [
+    "",
+    "InternalSwitch"
+  ]
+}

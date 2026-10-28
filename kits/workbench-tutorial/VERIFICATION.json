@@ -1,0 +1,67 @@
+{
+  "package_version": "1.3.0",
+  "date": "2026-10-11",
+  "included_toolkit_version": "0.2.0",
+  "lesson_unit_tests": {"passed": 15, "failed": 0},
+  "included_toolkit_unit_tests_rerun": {"passed": 51, "failed": 0},
+  "ready_examples": [
+    {"profile": "rpgmaker", "units": 18, "changed_reference_units": 18, "nochange_byte_identical": true, "reference_build_verified": true, "seeded_semantic_error": true},
+    {"profile": "renpy-template", "units": 2, "changed_reference_units": 2, "nochange_byte_identical": true, "reference_build_verified": true, "seeded_semantic_error": false},
+    {"profile": "tyrano", "units": 3, "changed_reference_units": 3, "nochange_byte_identical": true, "reference_build_verified": true, "seeded_semantic_error": false}
+  ],
+  "lesson_checks": [
+    "correct_full_and_incremental_returns_build_same_data",
+    "plain_text_return_reconstructs_complete_editable",
+    "immutable_baseline_and_context",
+    "wrong_hash_duplicate_ID_missing_token_rejection",
+    "existing_and_nested_output_rejection",
+    "notes_separate_from_game_data",
+    "gender_error_can_pass_structure_but_is_not_certified_semantically",
+    "generic_export_preserves_current_translation_version",
+    "generic_import_uses_original_engine_validator_and_PGMM_title_sync",
+    "stage_specific_tasks_preserve_current_full_translation",
+    "proofreading_and_polishing_require_explicit_editable",
+    "stage_selection_verified_through_CLI",
+    "complete_relay_preserves_prior_stage_changes_and_rejects_then_repairs_missing_token"
+  ],
+  "v1_2_documentation_integration": {
+    "source_documents": 2,
+    "source_documents_unchanged": true,
+    "reorganized_guides": 3,
+    "new_templates": 2,
+    "neutral_text_quality_example_groups": 5,
+    "generated_task_cards_updated": true,
+    "automatic_semantic_scanner_added": false
+  },
+  "real_workbench_plain_text_bridge": {
+    "evidence_origin": "Inherited from the v1.1 bridge round-trip, not rerun for this documentation integration.",
+    "engine": "MZ",
+    "units": 13217,
+    "editable_files": 147,
+    "existing_changed_units": 1,
+    "export_import_byte_identical_editable_files": true,
+    "differing_files": 0,
+    "original_work_and_translation_read_only": true,
+    "real_game_content_included_in_package": false
+  },
+  "v1_3_stage_and_relay": {
+    "stages": ["translation", "proofreading", "polishing"],
+    "default_stage": "translation",
+    "review_stages_require_explicit_current_editable": true,
+    "current_editable_fingerprint_exported": true,
+    "ready_relay_units": 18,
+    "stage_changed_records": [18, 1, 1],
+    "previous_stage_fingerprints_match_next_inputs": true,
+    "bad_return_rejected_and_fixed_return_built": true,
+    "source_and_baseline_unchanged": true,
+    "reference_answers_are_canned_neutral_text": true,
+    "post_draft_removed_from_current_package": true
+  },
+  "public_ready_example_cli": {"check": true, "from_text": true, "integrate": true},
+  "runtime_tested": false,
+  "examples_are_playable_games": false,
+  "semantic_quality_not_automatically_certified": true,
+  "API_calls_or_external_dependencies_required_for_lessons": false,
+  "contains_commercial_game_or_personal_save_resources": false,
+  "previous_tutorial_archives_and_original_toolkit_unchanged": true
+}

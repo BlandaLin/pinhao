@@ -1,0 +1,32 @@
+name: Bug Report / 问题反馈
+description: Report an error, missing text, layout problem, or workflow issue.
+body:
+  - type: markdown
+    attributes:
+      value: |
+        请先遮盖 API 密钥、账号和个人目录。提交最小复现步骤及相关截图或脱敏日志。
+        Redact API keys, accounts, and personal paths. Share minimal reproduction steps and sanitized evidence.
+  - type: input
+    id: version
+    attributes:
+      label: Software Version / 软件版本
+      placeholder: '0.5.8, Windows 11 x64'
+    validations:
+      required: true
+  - type: input
+    id: engine
+    attributes:
+      label: Game and Engine / 游戏与引擎
+      description: Include the game version and detected engine when relevant.
+  - type: textarea
+    id: steps
+    attributes:
+      label: Reproduction / 复现步骤
+      placeholder: Describe the actions, expected result, and actual result.
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Evidence / 截图与脱敏日志
+      description: Share the relevant error and stage. Use neutral text or a minimal fixture where possible.

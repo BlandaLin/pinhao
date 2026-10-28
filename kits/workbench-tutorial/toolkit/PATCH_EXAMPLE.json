@@ -1,0 +1,11 @@
+{
+  "schema": "rpgmaker-ai-patch-v1",
+  "baseline_sha256": "REPLACE_WITH_EXACT_HASH_FROM_PATCH_TEMPLATE",
+  "changes": [
+    {
+      "id": "REPLACE_WITH_EXACT_UNIT_ID",
+      "translation": "REPLACE_WITH_TRANSLATION_AND_UNCHANGED_PLACEHOLDERS",
+      "notes": "Optional proofreading note; not inserted into the game."
+    }
+  ]
+}

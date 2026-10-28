@@ -1,0 +1,24 @@
+{
+  "schema": "localization-lesson-v1",
+  "version": "1.3.0",
+  "profile": "tyrano",
+  "extraction": {
+    "engine": "tyrano",
+    "files": 1,
+    "units": 3,
+    "sheets": 1,
+    "review_items": 2,
+    "status": "interchange_or_source_extracted_not_runtime_tested"
+  },
+  "reference_verification": {
+    "units": 3,
+    "changed": 3,
+    "status": "verified_not_runtime_tested",
+    "files": 1
+  },
+  "baseline_sha256": "2fd13610abd1769d54ca045fa25f981f19f1806af194494cfa6e8b392aa13e46",
+  "nochange_byte_identical": true,
+  "proofreading_seeded_issue_id": null,
+  "runtime_tested": false,
+  "status": "neutral_data_lesson_not_a_playable_game"
+}

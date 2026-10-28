@@ -1,0 +1,12 @@
+SPDX-License-Identifier: GPL-3.0-or-later
+
+Copyright (c) 2026 Pinhao Localization contributors
+
+The desktop application and new product modules are licensed under the GNU
+General Public License, version 3 or (at your option) any later version.
+The complete license text is provided in COPYING.
+
+Existing MIT-licensed tools retain their own license notices. The standalone
+exchange library under packages/exchange is licensed under MIT. Third-party
+dependencies, game resources, fonts, and user translations retain their own
+licenses and rights.

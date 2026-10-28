@@ -1,0 +1,25 @@
+{
+  "schema": "tutorial-batch-ledger-v1",
+  "note": "Manual handoff record; not a kickstart patch or automated workflow input.",
+  "project": "FILL_PROJECT",
+  "work_version": "FILL_VERSION",
+  "baseline_sha256": "FILL_BY_TECHNICAL_OWNER",
+  "current_effective_translation": "FILL_COMPLETE_CURRENT_OUTPUT",
+  "batches": [
+    {
+      "batch_id": "batch-001",
+      "files_or_ids": [],
+      "expected_units": null,
+      "stage": "translation",
+      "parent_version": "FILL_INPUT_VERSION",
+      "output_version": "FILL_NEW_VERSION",
+      "return_mode": "full_editable",
+      "status": "not_started",
+      "returned_units": null,
+      "changed_units": null,
+      "uncertain_ids": [],
+      "validation_report": null,
+      "semantic_review_report": null
+    }
+  ]
+}

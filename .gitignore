@@ -1,0 +1,39 @@
+# Machine-specific indexes, private evidence and actual game resources.
+local/
+# Development context and historical investigation remain local.
+/AGENTS.md
+/CONTEXT.md
+/research/
+/cases/
+/docs/product/FEEDBACK.md
+/scripts/consolidate_legacy.py
+/scripts/index_cases.py
+/scripts/verify_project.py
+games/
+work/
+artifacts/
+toolchains/
+node_modules/
+.venv/
+__pycache__/
+*.py[cod]
+*.log
+.env
+.env.*
+!.env.example
+*.zip
+*.7z
+*.rar
+*.part
+dist/
+dist-host/
+release/
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal
+
+
+# 本地打包产物（由 _pack-all.mjs 生成，不进版本库）
+_stage/
+_pack-all.mjs
+

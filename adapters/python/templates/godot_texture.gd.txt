@@ -1,0 +1,29 @@
+extends SceneTree
+
+func _initialize():
+	var args = OS.get_cmdline_user_args()
+	var image = Image.load_from_file(args[0])
+	if image == null:
+		quit(1)
+		return
+	image.convert(Image.FORMAT_RGBA8)
+	var major = int(args[2])
+	if major >= 4:
+		quit(ResourceSaver.save(ImageTexture.create_from_image(image), args[1]))
+		return
+	var values = PackedStringArray()
+	for value in image.get_data():
+		values.append(str(value))
+	var pixels = ", ".join(values)
+	var text = ""
+	if major == 3:
+		text = "[gd_resource type=\"ImageTexture\" load_steps=2 format=2]\n[sub_resource type=\"Image\" id=1]\ndata={\"data\":PoolByteArray(" + pixels + "),\"format\":\"RGBA8\",\"height\":" + str(image.get_height()) + ",\"width\":" + str(image.get_width()) + ",\"mipmaps\":false}\n[resource]\nimage=SubResource(1)\n"
+	else:
+		text = "[gd_resource type=\"ImageTexture\" format=1]\n[resource]\nimage=Image(" + str(image.get_width()) + "," + str(image.get_height()) + ",0,RGBA," + pixels + ")\n"
+	var file = FileAccess.open(args[1], FileAccess.WRITE)
+	if file == null:
+		quit(1)
+		return
+	file.store_string(text)
+	file.close()
+	quit()

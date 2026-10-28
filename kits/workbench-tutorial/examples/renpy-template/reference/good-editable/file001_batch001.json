@@ -1,0 +1,37 @@
+{
+  "schema": "rpgmaker-ai-units-v1",
+  "units": [
+    {
+      "id": "game/tl/schinese/demo.rpy:00001",
+      "kind": "native_translation",
+      "source": "Hello, {{CTRL0001}}.",
+      "translation": "您好，{{CTRL0001}}。",
+      "source_preview": "Hello, [player].",
+      "tokens": [
+        "{{CTRL0001}}"
+      ],
+      "context": {
+        "language": "schinese",
+        "translate_id": "demo_a",
+        "speaker": "clerk",
+        "target_was_empty": true
+      },
+      "notes": "Neutral tutorial reference; valid alternative wording is allowed."
+    },
+    {
+      "id": "game/tl/schinese/demo.rpy:00002",
+      "kind": "native_translation",
+      "source": "Continue",
+      "translation": "继续",
+      "source_preview": "Continue",
+      "tokens": [],
+      "context": {
+        "language": "schinese",
+        "translate_id": "strings",
+        "speaker": "new",
+        "target_was_empty": true
+      },
+      "notes": "Neutral tutorial reference; valid alternative wording is allowed."
+    }
+  ]
+}

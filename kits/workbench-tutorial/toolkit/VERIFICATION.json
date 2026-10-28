@@ -1,0 +1,32 @@
+{
+  "tool_version": "0.2.0",
+  "date": "2026-10-11",
+  "engine_routes": 14,
+  "extract_profiles": 11,
+  "native_game_importers_for_all_routes": false,
+  "unit_tests": {
+    "passed": 51,
+    "failed": 0,
+    "synthetic_closed_loop_profiles": ["rpgmaker", "renpy-template", "tyrano", "kirikiri", "twee", "twine-html", "pgmm", "wolf-export", "godot-csv", "gettext-po", "json-selected"],
+    "detection_only_demos": ["legacy-detection", "nscripter-detection"],
+    "archive_fixtures": ["RGSS v1", "RGSS v3", "RPA 2", "RPA 3 with prefix"],
+    "unity_inventory": "mock_TextAsset_API_only_optional_dependency_not_installed",
+    "checks": ["nochange_byte_identity", "single_marker_build_and_verify", "originals_readonly", "immutable_identity_and_context", "baseline_drift", "duplicate_and_wrong_baseline_patches", "syntax_and_control_injection", "UTF16_BOM", "explicit_encoding_failure", "opaque_script_preservation", "KS_nested_brackets", "Twine_script_links_and_macro_quotes", "RenPy_empty_and_existing_targets", "CSV_multiline_CRLF_keys", "PO_context_plural", "PGMM_title_sync", "WOLF_display_command_selection", "explicit_JSON_only", "RPA_pickle_global_rejection", "archive_path_traversal", "probe_signatures"]
+  },
+  "new_real_resource_closed_loops": [
+    {"profile": "tyrano", "files": 81, "units": 6891, "review_items": 8182, "nochange_byte_identical": true, "one_marker_changed_build_verified": true, "original_unchanged": true, "runtime_tested": false},
+    {"profile": "pgmm", "files": 2, "units": 610, "review_items": 1, "nochange_byte_identical": true, "one_marker_changed_build_verified": true, "original_unchanged": true, "runtime_tested": false},
+    {"profile": "wolf-export", "files": 150, "units": 1394, "review_items": 2280, "nochange_byte_identical": true, "one_marker_changed_build_verified": true, "original_unchanged": true, "native_WOLF_import_tested_by_this_tool": false, "runtime_tested": false}
+  ],
+  "previous_real_work_reverified_with_v02": [
+    {"engine": "MZ", "engine_version": "1.6.0", "files": 69, "units": 13217, "changed": 1, "verification_passed": true},
+    {"engine": "VX Ace", "files": 152, "units": 15391, "changed": 1, "verification_passed": true}
+  ],
+  "previous_v01_real_evidence_not_reexecuted_in_v02": {"RGSS3_data_files": 152, "data_bytes": 6524980, "byte_match_independent_extraction": true},
+  "not_verified": ["runtime_for_new_adapters", "full_story_playthrough", "real_RenPy_RPA_and_SDK", "real_Twine_game", "real_Unity_asset_inventory_and_import", "real_Godot_PCK_and_import", "Unreal_native_container_locres", "LCF_native_import", "GameMaker_native_import", "NScripter_text_roundtrip", "XP_VX_text_reinsertion", "fonts_images_and_old_saves", "market_share"],
+  "F95Zone_direct_sampling": "blocked_by_robots",
+  "DLsite_direct_sampling": "pages_not_accessible_to_browser_tool",
+  "bundle_contains_game_resources": false,
+  "bundle_contains_external_binaries_or_API_keys": false,
+  "original_v01_bundle_preserved": true
+}

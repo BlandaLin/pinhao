@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://pinhao.example/schemas/text-package/0.2/editable.json",
+  "title": "PinHao Editable Records 0.2 (same fields as 0.1)",
+  "type": "array",
+  "items": {
+    "type": "object",
+    "required": ["id", "translation", "notes", "intent"],
+    "properties": {
+      "id": { "type": "string", "minLength": 1 },
+      "translation": { "type": "string", "maxLength": 200000 },
+      "notes": { "type": "string" },
+      "intent": { "enum": ["submit", "keep", "pending", "clear"] }
+    },
+    "additionalProperties": false
+  }
+}

@@ -1,0 +1,83 @@
+{
+  "schema": "rpgmaker-ai-units-v1",
+  "units": [
+    {
+      "id": "System:00001",
+      "kind": "system_text",
+      "source": "Demo",
+      "translation": "工作台示例",
+      "source_preview": "Demo",
+      "tokens": [],
+      "context": {
+        "field": "gameTitle"
+      },
+      "notes": ""
+    },
+    {
+      "id": "System:00002",
+      "kind": "system_text",
+      "source": "Coin",
+      "translation": "金币",
+      "source_preview": "Coin",
+      "tokens": [],
+      "context": {
+        "field": "currencyUnit"
+      },
+      "notes": ""
+    },
+    {
+      "id": "System:00003",
+      "kind": "system_type",
+      "source": "Fire",
+      "translation": "火",
+      "source_preview": "Fire",
+      "tokens": [],
+      "context": {
+        "field": "elements",
+        "index": 1
+      },
+      "notes": ""
+    },
+    {
+      "id": "System:00004",
+      "kind": "system_term",
+      "source": "Level",
+      "translation": "等级",
+      "source_preview": "Level",
+      "tokens": [],
+      "context": {
+        "field": "basic",
+        "index": 0
+      },
+      "notes": ""
+    },
+    {
+      "id": "System:00005",
+      "kind": "system_term",
+      "source": "Fight",
+      "translation": "战斗",
+      "source_preview": "Fight",
+      "tokens": [],
+      "context": {
+        "field": "commands",
+        "index": 0
+      },
+      "notes": ""
+    },
+    {
+      "id": "System:00006",
+      "kind": "system_term",
+      "source": "{{CTRL0001}} wins!",
+      "translation": "{{CTRL0001}}获胜了！",
+      "source_preview": "%1 wins!",
+      "tokens": [
+        "{{CTRL0001}}"
+      ],
+      "context": {
+        "field": "messages",
+        "index": "victory"
+      },
+      "notes": ""
+    }
+  ]
+}

@@ -1,0 +1,22 @@
+name: Engine Compatibility / 引擎兼容
+description: Request support for a format, plugin, or engine variant.
+body:
+  - type: input
+    id: engine
+    attributes:
+      label: Engine and Version / 引擎及版本
+      placeholder: Engine name, runtime version, and known plugin or archive format
+    validations:
+      required: true
+  - type: textarea
+    id: result
+    attributes:
+      label: Current Result / 当前处理结果
+      description: Include the software version, detected capabilities, and failing stage.
+    validations:
+      required: true
+  - type: textarea
+    id: sample
+    attributes:
+      label: Reproduction Sample / 复现样例
+      description: Provide a neutral or freely redistributable minimal sample, or describe the file structure. Redact personal data and credentials.

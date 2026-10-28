@@ -1,0 +1,24 @@
+{
+  "schema": "tutorial-semantic-review-v1",
+  "note": "Manual companion report; not a merge patch, editable file, or automated semantic validation result.",
+  "input_translation_version": "FILL_CURRENT_VERSION",
+  "input_translation_digest": "FILL_BY_TECHNICAL_OWNER",
+  "review_scope": "FILL_ACTUAL_CHECKED_SCOPE",
+  "unchecked_scope": "FILL_OR_NONE",
+  "issues": [
+    {
+      "id": "FILL_EXISTING_STABLE_ID",
+      "category": "pronoun_or_term_or_meaning_or_style_or_display",
+      "source": "FILL_READONLY_SOURCE",
+      "current_translation": "FILL_CURRENT_TEXT",
+      "context": "FILL_RELEVANT_READONLY_CONTEXT",
+      "reason": "FILL_SPECIFIC_QUESTION",
+      "evidence": "FILL_OR_UNKNOWN",
+      "suggested_translation": null,
+      "decision": "pending",
+      "decision_options": ["pending", "confirmed_error", "accepted_exception", "false_positive", "resolved"],
+      "decision_reason": null,
+      "resolved_in_version": null
+    }
+  ]
+}

@@ -1,0 +1,26 @@
+{
+  "schema": "localization-lesson-v1",
+  "version": "1.3.0",
+  "profile": "rpgmaker",
+  "extraction": {
+    "engine": "MZ",
+    "files": 4,
+    "units": 18,
+    "sheets": 3,
+    "review_items": 5,
+    "unreviewed_images": 1,
+    "translated": 0,
+    "status": "extracted_not_runtime_tested"
+  },
+  "reference_verification": {
+    "units": 18,
+    "changed": 18,
+    "status": "verified_not_runtime_tested",
+    "files": 4
+  },
+  "baseline_sha256": "064080b259656162ec1651959eb989b9a7315d92585a5252df0bd92ae42a7cdc",
+  "nochange_byte_identical": true,
+  "proofreading_seeded_issue_id": "Actors:00002",
+  "runtime_tested": false,
+  "status": "neutral_data_lesson_not_a_playable_game"
+}

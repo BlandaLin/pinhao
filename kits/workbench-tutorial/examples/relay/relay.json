@@ -1,0 +1,46 @@
+{
+  "schema": "localization-relay-lesson-v1",
+  "version": "1.3.0",
+  "stages": [
+    {
+      "stage": "translation",
+      "input_sha256": "594749a9aae4c79da98d2d5cef5d06b71faa6a2ffab2b7d74d75721dbaa49417",
+      "output_sha256": "f0af1010c5b711002bbad3d0069fd675feeb1a24a174f002d12f0eb2fed4df41",
+      "units": 18,
+      "changed_records_in_this_stage": 18,
+      "semantic_review": "canned_reference_not_automatic_evaluation"
+    },
+    {
+      "stage": "proofreading",
+      "input_sha256": "f0af1010c5b711002bbad3d0069fd675feeb1a24a174f002d12f0eb2fed4df41",
+      "output_sha256": "19c3e930a0262956886d60be894295c90921b8a7ff43aa79c5ee73a2f4fbaa20",
+      "units": 18,
+      "changed_records_in_this_stage": 1,
+      "semantic_review": "canned_reference_not_automatic_evaluation"
+    },
+    {
+      "stage": "polishing",
+      "input_sha256": "19c3e930a0262956886d60be894295c90921b8a7ff43aa79c5ee73a2f4fbaa20",
+      "output_sha256": "997c82b85f42d7654dca2fdc013e76a212fb40a57b08789eb9f40b3bfd2c5b33",
+      "units": 18,
+      "changed_records_in_this_stage": 1,
+      "semantic_review": "canned_reference_not_automatic_evaluation"
+    }
+  ],
+  "profile_issue_id": "Actors:00002",
+  "dialogue_issue_id": "Map001:00003",
+  "bad_return_rejected": true,
+  "fixed_return_built": true,
+  "source_and_baseline_unchanged": true,
+  "final_verification": {
+    "units": 18,
+    "changed": 18,
+    "status": "verified_not_runtime_tested",
+    "files": 4,
+    "notes_saved_separately": 2,
+    "semantic_review": "requires_text_AI_or_human",
+    "runtime_tested": false
+  },
+  "automatic_translation_or_semantic_review": false,
+  "runtime_tested": false
+}

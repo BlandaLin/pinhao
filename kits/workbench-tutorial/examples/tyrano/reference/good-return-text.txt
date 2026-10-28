@@ -1,0 +1,14 @@
+WORKBENCH-TEXT-v1
+BASELINE=2fd13610abd1769d54ca045fa25f981f19f1806af194494cfa6e8b392aa13e46
+
+ID=data/scenario/demo.ks:00001
+TEXT=前台员工
+NOTE=Neutral tutorial reference; valid alternative wording is allowed.
+
+ID=data/scenario/demo.ks:00002
+TEXT=欢迎光临。{{CTRL0001}}{{CTRL0002}}请进。{{CTRL0003}}
+NOTE=Neutral tutorial reference; valid alternative wording is allowed.
+
+ID=data/scenario/demo.ks:00003
+TEXT=确认
+NOTE=Neutral tutorial reference; valid alternative wording is allowed.

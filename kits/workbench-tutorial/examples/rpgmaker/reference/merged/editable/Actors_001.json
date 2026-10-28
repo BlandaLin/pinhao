@@ -1,0 +1,33 @@
+{
+  "schema": "rpgmaker-ai-units-v1",
+  "units": [
+    {
+      "id": "Actors:00001",
+      "kind": "database_name",
+      "source": "Lin",
+      "translation": "林川",
+      "source_preview": "Lin",
+      "tokens": [],
+      "context": {
+        "record": 1,
+        "field": "name"
+      },
+      "notes": ""
+    },
+    {
+      "id": "Actors:00002",
+      "kind": "database_profile",
+      "source": "A traveler.{{CTRL0001}}A new arrival.",
+      "translation": "一名旅人。{{CTRL0001}}初来此地。",
+      "source_preview": "A traveler.\nA new arrival.",
+      "tokens": [
+        "{{CTRL0001}}"
+      ],
+      "context": {
+        "record": 1,
+        "field": "profile"
+      },
+      "notes": ""
+    }
+  ]
+}

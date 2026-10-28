@@ -1,0 +1,21 @@
+{
+  "schema": "rpgmaker-ai-patch-v1",
+  "baseline_sha256": "2fd13610abd1769d54ca045fa25f981f19f1806af194494cfa6e8b392aa13e46",
+  "changes": [
+    {
+      "id": "data/scenario/demo.ks:00001",
+      "translation": "前台员工",
+      "notes": "Neutral tutorial reference; valid alternative wording is allowed."
+    },
+    {
+      "id": "data/scenario/demo.ks:00002",
+      "translation": "欢迎光临。{{CTRL0001}}{{CTRL0002}}请进。{{CTRL0003}}",
+      "notes": "Neutral tutorial reference; valid alternative wording is allowed."
+    },
+    {
+      "id": "data/scenario/demo.ks:00003",
+      "translation": "确认",
+      "notes": "Neutral tutorial reference; valid alternative wording is allowed."
+    }
+  ]
+}

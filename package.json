@@ -1,0 +1,39 @@
+{
+  "name": "pinhao-localization-workbench",
+  "version": "0.5.8",
+  "private": true,
+  "type": "module",
+  "license": "GPL-3.0-or-later",
+  "workspaces": [
+    "apps/desktop"
+  ],
+  "scripts": {
+    "dev": "node apps/desktop/electron/dev-server.mjs",
+    "desktop": "npm run build && electron apps/desktop",
+    "build": "npm run build --workspace apps/desktop",
+    "test": "node --test --test-concurrency=2 packages/core/*.test.mjs packages/technical/*.test.mjs packages/technical/adaptation/*.test.mjs packages/runtime/*.test.mjs packages/runtime/script/*.test.mjs packages/images/*.test.mjs apps/desktop/electron/tests/*.test.mjs tests/evals/technical/*.test.mjs",
+    "eval:technical": "node scripts/eval-technical.mjs",
+    "test:engines": "python -B -m unittest discover -s adapters/python -p test_*.py -v && node adapters/python/test_runtime.cjs",
+    "test:ui": "node scripts/test-ui.mjs",
+    "test:ci": "node --test --test-concurrency=2 packages/core/connection-test.test.mjs apps/desktop/electron/tests/assist-view.test.mjs apps/desktop/electron/tests/ui-errors.test.mjs packages/core/available-text.test.mjs packages/core/native-tools.test.mjs packages/core/native-handoff.test.mjs packages/core/generated-partial.test.mjs packages/core/task-index.test.mjs packages/core/store.test.mjs packages/core/adaptation-flow.test.mjs packages/core/adaptation-pool-flow.test.mjs packages/core/adaptation-merge-flow.test.mjs packages/core/adaptation-zero.test.mjs packages/core/adaptation-results.test.mjs packages/core/native-recovery.test.mjs packages/core/adaptive-worker.test.mjs packages/core/adapter-merge.test.mjs packages/core/glossary.test.mjs packages/core/glossary-scale.test.mjs packages/core/provider.test.mjs packages/core/lifecycle.test.mjs packages/technical/*.test.mjs packages/technical/adaptation/*.test.mjs apps/desktop/electron/tests/appearance.test.mjs apps/desktop/electron/tests/credential-preflight.test.mjs apps/desktop/electron/tests/export.test.mjs apps/desktop/electron/tests/native-revision.test.mjs apps/desktop/electron/tests/public-source.test.mjs apps/desktop/electron/tests/secrets.test.mjs apps/desktop/electron/tests/unity-resources.test.mjs",
+    "check:public": "node scripts/public-source.mjs",
+    "prepare:tools": "node scripts/prepare-tools.mjs",
+    "prepare:dsh": "node scripts/prepare-dsh.mjs",
+    "package": "npm run build && node scripts/package-desktop.mjs"
+  },
+  "dependencies": {
+    "@ai-sdk/openai-compatible": "3.0.70",
+    "acorn": "8.19.0",
+    "ai": "7.0.142",
+    "diff": "8.0.2",
+    "quickjs-emscripten": "0.31.0",
+    "sharp": "0.35.5",
+    "zod": "4.6.7"
+  },
+  "devDependencies": {
+    "@electron/packager": "20.3.0",
+    "@types/node": "26.6.5",
+    "electron": "44.8.0",
+    "esbuild": "0.28.2"
+  }
+}

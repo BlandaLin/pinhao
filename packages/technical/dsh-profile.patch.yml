@@ -1,0 +1,43 @@
+# The existing host tools own game access and script execution. Do not add a
+# second shell or file mutation path beside their evidence and validation.
+- id: sdk-jsonrpc-server
+  inject: [sdkAppStartup, loader, pinhaoBusinessTools]
+- id: llm-deepseek
+  disabled: true
+- id: deepseek-llm-api-extensions
+  disabled: true
+- id: session-log-deepseek
+  disabled: true
+- id: plugin-package-inventory-deepseek
+  disabled: true
+- id: tool-fs
+  disabled: true
+- id: tool-working-directory
+  disabled: true
+- id: persistent-bash
+  disabled: true
+- id: persistent-pwsh
+  disabled: true
+- id: terminal-bash
+  disabled: true
+- id: terminal-pwsh
+  disabled: true
+- id: pty
+  disabled: true
+- id: jobs
+  disabled: true
+- id: system-prompt
+  config:
+    includeHarnessIdentity: false
+    includeRuntimeContext: false
+    personaPrefix: !!js process.env.DSH_SYSTEM_PROMPT
+- id: compaction-basic
+  config:
+    auto: true
+    thresholdRatio: 0.75
+    retainRatio: 0.25
+    maxTokens: 8192
+    compactionRetries: 1
+    maxOverflowRetries: 1
+# The runner adds the model provider and host plugin with literal artifact
+# paths. Metadata names are not !!js expressions in the upstream loader.

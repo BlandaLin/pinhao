@@ -1,0 +1,96 @@
+{
+  "schema": "rpgmaker-ai-patch-v1",
+  "baseline_sha256": "064080b259656162ec1651959eb989b9a7315d92585a5252df0bd92ae42a7cdc",
+  "changes": [
+    {
+      "id": "Actors:00001",
+      "translation": "林川",
+      "notes": "Neutral tutorial reference; valid alternative wording is allowed."
+    },
+    {
+      "id": "Actors:00002",
+      "translation": "一名旅人。{{CTRL0001}}初来此地。",
+      "notes": "Neutral tutorial reference; valid alternative wording is allowed."
+    },
+    {
+      "id": "Map001:00001",
+      "translation": "旅馆",
+      "notes": "Neutral tutorial reference; valid alternative wording is allowed."
+    },
+    {
+      "id": "Map001:00002",
+      "translation": "前台员工",
+      "notes": "Neutral tutorial reference; valid alternative wording is allowed."
+    },
+    {
+      "id": "Map001:00003",
+      "translation": "您好，{{CTRL0001}}。{{LINE0001}}请这边走。",
+      "notes": "Neutral tutorial reference; valid alternative wording is allowed."
+    },
+    {
+      "id": "Map001:00004",
+      "translation": "是",
+      "notes": "Neutral tutorial reference; valid alternative wording is allowed."
+    },
+    {
+      "id": "Map001:00005",
+      "translation": "否",
+      "notes": "Neutral tutorial reference; valid alternative wording is allowed."
+    },
+    {
+      "id": "Map001:00006",
+      "translation": "前台员工",
+      "notes": "Neutral tutorial reference; valid alternative wording is allowed."
+    },
+    {
+      "id": "Map001:00007",
+      "translation": "谢谢。",
+      "notes": "Neutral tutorial reference; valid alternative wording is allowed."
+    },
+    {
+      "id": "Map001:00008",
+      "translation": "前台员工",
+      "notes": "Neutral tutorial reference; valid alternative wording is allowed."
+    },
+    {
+      "id": "Map001:00009",
+      "translation": "再见。",
+      "notes": "Neutral tutorial reference; valid alternative wording is allowed."
+    },
+    {
+      "id": "Map001:00010",
+      "translation": "林川",
+      "notes": "Neutral tutorial reference; valid alternative wording is allowed."
+    },
+    {
+      "id": "System:00001",
+      "translation": "工作台示例",
+      "notes": "Neutral tutorial reference; valid alternative wording is allowed."
+    },
+    {
+      "id": "System:00002",
+      "translation": "金币",
+      "notes": "Neutral tutorial reference; valid alternative wording is allowed."
+    },
+    {
+      "id": "System:00003",
+      "translation": "火",
+      "notes": "Neutral tutorial reference; valid alternative wording is allowed."
+    },
+    {
+      "id": "System:00004",
+      "translation": "等级",
+      "notes": "Neutral tutorial reference; valid alternative wording is allowed."
+    },
+    {
+      "id": "System:00005",
+      "translation": "战斗",
+      "notes": "Neutral tutorial reference; valid alternative wording is allowed."
+    },
+    {
+      "id": "System:00006",
+      "translation": "{{CTRL0001}}获胜了！",
+      "notes": "Neutral tutorial reference; valid alternative wording is allowed."
+    }
+  ]
+}

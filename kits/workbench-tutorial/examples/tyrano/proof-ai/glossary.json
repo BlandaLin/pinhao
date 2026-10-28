@@ -1,0 +1,29 @@
+{
+  "schema": "tutorial-glossary-v1",
+  "entries": [
+    {
+      "source": "Lin",
+      "target": "林川",
+      "role": "actor_id_1",
+      "gender": "male",
+      "evidence": "Author-defined neutral fixture; no appearance-based inference."
+    },
+    {
+      "source": "Clerk",
+      "target": "前台员工",
+      "role": "speaker",
+      "gender": "unknown",
+      "evidence": "Do not infer a gender from a job title."
+    },
+    {
+      "source": "Inn",
+      "target": "旅馆",
+      "role": "location"
+    },
+    {
+      "source": "Continue",
+      "target": "继续",
+      "role": "menu"
+    }
+  ]
+}

@@ -1,0 +1,13 @@
+{
+  "schema": "tutorial-source-provenance-v1",
+  "package_version": "1.3.0",
+  "integration": "Reorganized with permission from the project owner; original files left unchanged; private paths and original project excerpts not bundled.",
+  "sources": [
+    {"filename": "信达雅兜底手册.md", "sha256": "5a863b59ee62cad910242befc3870aff1a39d0ddb3496dfdc0228485be4f2a18"},
+    {"filename": "AI汉化交接指南.md", "sha256": "b18181680862a8001eae3aa4686d5308ec0f53d5d85377d0078a81dadc0307f0"}
+  ],
+  "empirical_claims_independently_verified": false,
+  "original_document_instructions_executed": false,
+  "quality_heuristic_scanner_implemented": false,
+  "new_examples": "Authored neutral text-quality demonstrations; not extracted commercial game text."
+}
