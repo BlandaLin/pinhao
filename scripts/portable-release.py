@@ -12,9 +12,10 @@ ROOT_FILES = (
     "v8_context_snapshot.bin", "vk_swiftshader_icd.json", "vk_swiftshader.dll",
     "vulkan-1.dll", "version", "LICENSE", "LICENSES.chromium.html",
     "SOURCE-CODE.zip", "拼好汉化-LICENSE.txt", "使用说明.txt", "测试说明.txt",
+    "README-English.txt", "LICENSE.txt",
 )
 ROOT_DIRECTORIES = ("locales", "resources")
-OPTIONAL_FILES = {"libEGL.dll", "libGLESv2.dll"}
+OPTIONAL_FILES = {"libEGL.dll", "libGLESv2.dll", "README-English.txt", "LICENSE.txt"}
 
 
 def filesystem_path(value):

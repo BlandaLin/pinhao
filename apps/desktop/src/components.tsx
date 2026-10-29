@@ -1,3 +1,4 @@
+import { tr } from "../shared/ui-language.js";
 import {
   useEffect,
   useId,
@@ -54,12 +55,12 @@ export function Heading({
 }
 
 export const statuses: Record<ProjectStatus, string> = {
-  preparing: "整理游戏",
-  ready: "准备就绪",
-  running: "正在制作",
-  paused: "已暂停",
-  completed: "本轮已完成",
-  failed: "制作失败",
+  preparing: tr("整理游戏"),
+  ready: tr("准备就绪"),
+  running: tr("正在制作"),
+  paused: tr("已暂停"),
+  completed: tr("本轮已完成"),
+  failed: tr("制作失败"),
 };
 export function Status({ value }: { value: ProjectStatus }) {
   const active = value === "running" || value === "preparing";
@@ -92,7 +93,7 @@ export function Empty({
 }) {
   return (
     <div className="empty">
-      <div className="empty-emblem">文</div>
+      <div className="empty-emblem">{tr("文")}</div>
       <h2>{title}</h2>
       {children && <p>{children}</p>}
       {action}
@@ -141,7 +142,7 @@ export function PathField({
           <button
             type="button"
             className="icon-button"
-            aria-label={`选择${label}`}
+            aria-label={tr`选择${label}`}
             onClick={() => void browse()}
           >
             <FolderOpen size={18} />
@@ -191,7 +192,7 @@ export function Modal({
           <button
             type="button"
             className="icon-button"
-            aria-label="关闭对话框"
+            aria-label={tr("关闭对话框")}
             onClick={onClose}
             disabled={busy}
           >
@@ -228,16 +229,15 @@ export function Progress({
         aria-valuenow={done + skipped}
         aria-valuemin={0}
         aria-valuemax={total || 1}
-        aria-label="文字处理进度"
+        aria-label={tr("文字处理进度")}
       >
         <span style={{ width: `${progress}%` }} />
       </div>
       <div className="progress-caption">
         <span>
-          {done.toLocaleString()} / {total.toLocaleString()} 条
-        </span>
+          {done.toLocaleString()} / {total.toLocaleString()}{tr(" 条")}</span>
         <span>
-          {skipped > 0 ? `${skipped} 条保留原文` : `${Math.round(progress)}%`}
+          {skipped > 0 ? tr`${skipped} 条保留原文` : `${Math.round(progress)}%`}
         </span>
       </div>
     </div>

@@ -1,4 +1,5 @@
 import { Gamepad2 } from "lucide-react";
+import { uiMessage } from "../shared/ui-language.js";
 
 const icons: Record<string, string> = {
   rpgmaker: "rpgmaker.webp",
@@ -23,7 +24,7 @@ export default function EngineLabel({ engine, label }: { engine: string; label?:
     <span className="engine-label" data-engine={family}>
       {icon ? <img className="engine-icon" src={`./engines/${icon}`} alt="" aria-hidden="true" width="22" height="22" />
         : <Gamepad2 className="engine-icon" size={20} aria-hidden="true" />}
-      <span className="engine-label-text">{label || engine}</span>
+      <span className="engine-label-text">{uiMessage(label || engine)}</span>
     </span>
   );
 }

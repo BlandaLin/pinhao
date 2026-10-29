@@ -13,15 +13,15 @@
 <p align="center"><a href="README.md">中文</a> · English</p>
 
 <p align="center">
-  <a href="https://github.com/BlandaLin/pinhao/releases/tag/v0.5.8"><strong>Download 0.5.8 for Windows</strong></a> ·
+  <a href="https://github.com/BlandaLin/pinhao/releases/tag/v0.5.8-en.1"><strong>Download the English UI beta</strong></a> ·
   <a href="#start-your-first-project">Get started</a> ·
   <a href="#engine-coverage">Engine coverage</a> ·
   <a href="docs/release-notes/v0.5.8.md#known-issues">Known issues</a>
 </p>
 
-<p align="center"><strong>0.5.8 Public Beta</strong> · Windows 10 / 11 x64 · Free software; model services may charge for API usage</p>
+<p align="center"><strong>0.5.8-en.1 English UI Public Beta</strong> · Windows 10 / 11 x64 · Free software; model services may charge for API usage</p>
 
-**The current download has a Chinese interface. An English-language beta is planned, but is not available yet.** Compatibility varies by game; start with a short scene.
+**The English UI is available as a separate download.** [Read its release notes](docs/release-notes/v0.5.8-en.1.md); the original [Chinese 0.5.8 package](https://github.com/BlandaLin/pinhao/releases/tag/v0.5.8) remains available. A fresh configuration in the English package defaults to English as the game's translation target; you can choose another language in Settings. Existing choices and project targets are preserved, and existing game text and translations are not automatically rewritten. Compatibility varies by game; start with a short scene.
 
 ![Historical interface demonstration: production overview for an original, neutral example project](.github/media/overview.png)
 
@@ -66,10 +66,10 @@ The screenshots on this page demonstrate the interface. A publicly shareable, sa
 
 Bring **Windows 10 / 11 x64**, a game folder, and your own model API. Keep the original game and saves.
 
-1. **Open the workbench.** Download `pinhao-0.5.8-Windows-x64.zip` from the [release page](https://github.com/BlandaLin/pinhao/releases/tag/v0.5.8), extract the whole package to a writable location, and run `PinhaoWorkbench.exe`. The source ZIP is for development, not for launching the app.
-2. **Connect your models.** In Settings (`设置`), enter your OpenAI-compatible endpoint, model name, and API key. Technical work and text work can use different connections; translation and proofreading share the text connection.
-3. **Import and try a short scene.** Drag in a game folder, executable, or Windows shortcut. Check the extracted text and outstanding items, then start production. Project script execution requires its own permission grant.
-4. **Check the result.** In Builds & Export (`成品与导出`), launch the standalone copy and check dialogue, choices, fonts, branches, and save/load. Export a sharing ZIP when you need one.
+1. **Open the workbench.** Download [`pinhao-0.5.8-en-Windows-x64.zip`](https://github.com/BlandaLin/pinhao/releases/download/v0.5.8-en.1/pinhao-0.5.8-en-Windows-x64.zip), extract the whole package to a writable location, and run `PinhaoWorkbench.exe`. The **Getting Started** page explains the first steps. The source ZIP is for development, not for launching the app.
+2. **Connect your models.** In **Settings**, enter your OpenAI-compatible endpoint, model name, and API key. Fresh English-package settings default the translation target to **English**; change it here if needed. Technical work and text work can use different connections; translation and proofreading share the text connection.
+3. **Import and try a short scene.** Drag in a game folder, executable, or Windows shortcut. In **Overview**, check the extracted text and outstanding items, then choose **Start translation & review**. Project script execution requires its own permission grant.
+4. **Check the result.** In **Builds & Export**, launch the standalone copy and check dialogue, choices, fonts, branches, and save/load. Export a sharing ZIP when you need one.
 
 **Where your work goes:** settings and the lightweight project index live in `data` beside the portable app. Projects default to a recognizable `game-name-拼好工程` folder beside the original game; the localized copy also defaults to a neighboring folder. See [Project storage](docs/product/PROJECT_STORAGE.md).
 
@@ -80,6 +80,8 @@ Bring **Windows 10 / 11 x64**, a game folder, and your own model API. Keep the o
 This is a public beta, not an all-engine or all-game completion guarantee. Test a short scene before a full project; build checks alone do not prove the game is playable.
 
 The first GitHub CI run for the published 0.5.8 source had **4 failing tests**. Two were identified as Windows long/short-path comparisons; the other two remain under investigation. See [Known issues](docs/release-notes/v0.5.8.md#known-issues) for the run, version boundary, and current record. A later change on `main` does not silently update the existing download.
+
+The English UI edition passed its focused checks, separately run UI tests, and an isolated packaged-app smoke check. It does **not** resolve or withdraw those four earlier failures, or claim all-engine or in-game acceptance. The [English UI release notes](docs/release-notes/v0.5.8-en.1.md#verification) record both the passes and the combined-suite timeout.
 
 **One actual scene can make a useful report.** In [Issues](https://github.com/BlandaLin/pinhao/issues), include your software and engine versions, steps, expected and actual results, and where the work stopped. For missing text, identify the dialogue or menu; for terminology, a small example is enough. Redact keys and personal paths. Do not publicly upload complete games, private projects, API settings, or saves. [Feedback and contribution guide](docs/CONTRIBUTING.md).
 
@@ -153,6 +155,7 @@ On Windows, prepare **Node.js 24.5+**, npm, and Git:
 npm ci
 npm run prepare:tools
 npm run prepare:dsh -- --build
+$env:PINHAO_UI_LANGUAGE = "en"
 npm run build
 npm run desktop
 ```
@@ -165,6 +168,8 @@ npm run test:engines
 npm run test:ui
 npm run package
 ```
+
+Keep `$env:PINHAO_UI_LANGUAGE = "en"` set in the same PowerShell session for **both build and package**, so the renderer and desktop app agree on English. Fresh settings in this build default the translation target to English; default Chinese builds retain Simplified Chinese. Existing selected languages and project targets are preserved; the model protocol and engine-facing values are unchanged. For the default Chinese build, clear it first with `Remove-Item Env:PINHAO_UI_LANGUAGE -ErrorAction SilentlyContinue`.
 
 `test:engines` also needs Python. These local component checks use neutral fixtures or mock model endpoints, not real-model or in-game acceptance. Packaging writes `local/releases/<version>/PinhaoWorkbench-win32-x64/`. The CI configuration and its recorded result are separate facts; see [Beta status](#beta-status-and-feedback).
 

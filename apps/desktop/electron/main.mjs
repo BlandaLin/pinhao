@@ -1,3 +1,4 @@
+import { tr, uiLanguage } from "../shared/ui-language.js";
 import { app, BrowserWindow, dialog, ipcMain, Menu, nativeImage, nativeTheme, protocol, safeStorage, shell } from 'electron';
 import { commandErrorRecord } from '../../../packages/contracts/command-errors.js';
 import path from 'node:path';
@@ -20,6 +21,7 @@ import { diagnosticsEnabled, writeCrashLog, appendRendererError, createCommandLo
 import { configureDesktopStorage, desktopDataDirectory, importWithWorkspaceSelection } from './storage.mjs';
 
 const sourceRoot = fileURLToPath(new URL('../../../', import.meta.url));
+if (uiLanguage === 'en') app.commandLine.appendSwitch('lang', 'en-US');
 const dataDir = desktopDataDirectory({ packaged: app.isPackaged, execPath: process.execPath, sourceRoot,
   override: process.env.PINHAO_DATA_DIR, smoke: process.env.PINHAO_SMOKE === '1' });
 let storageFailure;
@@ -39,7 +41,7 @@ smokeLog('Main module loaded');
 
 if (storageFailure) {
   console.error(storageFailure);
-  if (process.env.PINHAO_SMOKE !== '1') dialog.showErrorBox('无法打开数据文件夹', storageFailure.message);
+  if (process.env.PINHAO_SMOKE !== '1') dialog.showErrorBox(tr("无法打开数据文件夹"), storageFailure.message);
   app.exit(1);
 } else if (!app.requestSingleInstanceLock()) app.quit();
 else {
@@ -95,6 +97,7 @@ else {
   const engineWorker = productWorker(workerOptions);
   service = await createServiceClient({
     dataDir, secrets, defaultFontPath: defaultFont.fontPath,
+    defaultTargetLanguage: uiLanguage === 'en' ? 'en' : 'zh-Hans',
     workerOptions,
     // Quitting races with in-flight work (a delete plus a running translation still emits
     // `changed`): the BrowserWindow can outlive its webContents, so both are checked and any
@@ -124,17 +127,17 @@ else {
   ipcMain.handle('pinhao:command', async (event, method, input) => {
     if (diagnostics) commandLog.record(method, input);
     try {
-      if (event.sender !== window?.webContents || event.senderFrame?.url !== uiUrl) throw new Error('请求来源不匹配');
+      if (event.sender !== window?.webContents || event.senderFrame?.url !== uiUrl) throw new Error(tr("请求来源不匹配"));
       if (serviceMethods.has(method)) {
         const result = ['cleanupProject', 'deleteProject'].includes(method)
           ? await gameSessions.cleanup(input.projectId, () => service[method](input))
           : ['createProject', 'beginProject'].includes(method)
           ? await importWithWorkspaceSelection(value => service[method](value), input, async error => {
-            const confirmation = await dialog.showMessageBox(window, { type: 'warning', title: '请选择工程位置',
-              message: '无法在所选位置建立拼好工程', detail: `${error.message}\n请选择可写且空间充足的工程保存文件夹。原版游戏不受影响。`,
-              buttons: ['选择其他位置', '取消'], defaultId: 0, cancelId: 1, noLink: true });
+            const confirmation = await dialog.showMessageBox(window, { type: 'warning', title: tr("请选择工程位置"),
+              message: tr("无法在所选位置建立拼好工程"), detail: tr`${error.message}\n请选择可写且空间充足的工程保存文件夹。原版游戏不受影响。`,
+              buttons: [tr("选择其他位置"), tr("取消")], defaultId: 0, cancelId: 1, noLink: true });
             if (confirmation.response !== 0) return null;
-            const selection = await dialog.showOpenDialog(window, { title: '选择拼好工程保存位置', properties: ['openDirectory', 'createDirectory'] });
+            const selection = await dialog.showOpenDialog(window, { title: tr("选择拼好工程保存位置"), properties: ['openDirectory', 'createDirectory'] });
             return selection.canceled ? null : selection.filePaths[0];
           })
           : await service[method](input);
@@ -151,19 +154,19 @@ else {
         case 'setAppearance': result = await appearance.setTheme(input?.theme); break;
         case 'resolveGameImport': result = await resolveGameImport(input?.path, file => shell.readShortcutLink(file)); break;
         case 'chooseDirectory': {
-          const selection = await dialog.showOpenDialog(window, { title: input?.title || '选择游戏目录', properties: ['openDirectory'] });
+          const selection = await dialog.showOpenDialog(window, { title: input?.title || tr("选择游戏目录"), properties: ['openDirectory'] });
           result = selection.canceled ? null : selection.filePaths[0]; break;
         }
         case 'chooseFile': {
           const filters = input?.kind === 'font'
-            ? [{ name: '字体', extensions: ['ttf', 'otf'] }]
-            : [{ name: '文字工作包', extensions: ['zip'] }];
-          const selection = await dialog.showOpenDialog(window, { title: input?.title || '选择文件', properties: ['openFile'], filters });
+            ? [{ name: tr("字体"), extensions: ['ttf', 'otf'] }]
+            : [{ name: tr("文字工作包"), extensions: ['zip'] }];
+          const selection = await dialog.showOpenDialog(window, { title: input?.title || tr("选择文件"), properties: ['openFile'], filters });
           result = selection.canceled ? null : selection.filePaths[0]; break;
         }
         case 'chooseSaveFile': {
-          const filters = input?.kind === 'rga' ? [{ name: 'JoiPlay 游戏包', extensions: ['rga'] }] : [{ name: 'ZIP 压缩包', extensions: ['zip'] }];
-          const selection = await dialog.showSaveDialog(window, { title: input?.title || '导出', defaultPath: input?.defaultPath, filters });
+          const filters = input?.kind === 'rga' ? [{ name: tr("JoiPlay 游戏包"), extensions: ['rga'] }] : [{ name: tr("ZIP 压缩包"), extensions: ['zip'] }];
+          const selection = await dialog.showSaveDialog(window, { title: input?.title || tr("导出"), defaultPath: input?.defaultPath, filters });
           result = selection.canceled ? null : selection.filePath; break;
         }
         case 'openPath': {
@@ -195,11 +198,11 @@ else {
               child.once('exit', (code) => {
                 assist.disconnect(input.projectId); void cleanSession();
                 void service.recordRuntimeObservation({ projectId: input.projectId, buildId: build.id, kind: 'process-exit',
-                  status: code === 0 ? 'passed' : 'pending', detail: code === 0 ? '游戏进程已正常退出，游玩检查记录继续保留' : `游戏进程已退出（${code ?? '信号结束'}），可查看游戏日志` }).catch(() => {});
+                  status: code === 0 ? 'passed' : 'pending', detail: code === 0 ? tr("游戏进程已正常退出，游玩检查记录继续保留") : tr`游戏进程已退出（${code ?? tr("信号结束")}），可查看游戏日志` }).catch(() => {});
               });
               await service.recordRuntimeObservation({ projectId: input.projectId, buildId: build.id, kind: 'launch', status: 'passed',
-                detail: installation.status === 'install_failed' ? `${installation.detail || '辅助安装失败且已恢复原文件'}；游戏已按普通模式启动，辅助不可用。`
-                  : '游戏进程已启动；对话、分支、字体和存档可在试玩中核对' }).catch(() => {});
+                detail: installation.status === 'install_failed' ? tr`${installation.detail || tr("辅助安装失败且已恢复原文件")}；游戏已按普通模式启动，辅助不可用。`
+                  : tr("游戏进程已启动；对话、分支、字体和存档可在试玩中核对") }).catch(() => {});
             }
             catch (error) { assist.disconnect(input.projectId); await cleanSession(); throw error; }
             return { child, executable, buildId: build?.id };
@@ -219,23 +222,23 @@ else {
         case 'restoreAssistSave': result = await saveAssist.restore(input); break;
         case 'openAssistSave': {
           const project = await service.getProjectContext(input);
-          if (gameSessions.current(input.projectId)) throw new Error('请先关闭游戏，再读取存档');
-          const selection = await dialog.showOpenDialog(window, { title: '选择游戏存档',
+          if (gameSessions.current(input.projectId)) throw new Error(tr("请先关闭游戏，再读取存档"));
+          const selection = await dialog.showOpenDialog(window, { title: tr("选择游戏存档"),
             defaultPath: project.builds.at(-1)?.path || project.gameDir, properties: ['openFile'],
-            filters: [{ name: '可编辑的游戏存档', extensions: ['lsd', 'sav'] }] });
+            filters: [{ name: tr("可编辑的游戏存档"), extensions: ['lsd', 'sav'] }] });
           result = selection.canceled ? null : await saveAssist.open({ projectId: input.projectId, filePath: selection.filePaths[0] });
           break;
         }
         case 'applyRecollection': result = await recollection.apply(input); break;
         case 'restoreRecollection': result = await recollection.restore(input); break;
-        default: throw new Error('未知操作');
+        default: throw new Error(tr("未知操作"));
       }
       return { ok: true, result };
     } catch (error) { return { ok: false, error: commandErrorRecord(error) }; }
   });
   window = new BrowserWindow({
     width: 1366, height: 900, minWidth: 900, minHeight: 620,
-    title: '拼好汉化', backgroundColor: appearance.backgroundColor, show: false,
+    title: tr("拼好汉化"), backgroundColor: appearance.backgroundColor, show: false,
     icon: windowIcon,
     webPreferences: { preload, contextIsolation: true, sandbox: true, nodeIntegration: false, webSecurity: true },
   });
@@ -266,7 +269,7 @@ else {
   }).catch(error => {
     smokeLog(`Startup failed: ${error.stack || error.message}`);
     console.error(error);
-    if (process.env.PINHAO_SMOKE !== '1') dialog.showErrorBox('工作台启动失败', error.message);
+    if (process.env.PINHAO_SMOKE !== '1') dialog.showErrorBox(tr("工作台启动失败"), error.message);
     app.exit(1);
   });
 }

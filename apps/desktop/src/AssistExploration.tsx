@@ -1,3 +1,4 @@
+import { tr } from "../shared/ui-language.js";
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { Compass, MapPin, RotateCcw, Search } from "lucide-react";
 import type {
@@ -109,46 +110,39 @@ export default function AssistExploration({
       <section className="panel assist-exploration">
         <div className="panel-heading">
           <h2>
-            <Compass size={18} />
-            移动与探索
-          </h2>
+            <Compass size={18} />{tr("移动与探索")}</h2>
           {actions.has("restoreMovement") && (
             <Button
               disabled={busy}
               onClick={() => void send({ action: "restoreMovement" })}
             >
-              <RotateCcw size={15} />
-              恢复移动设置
-            </Button>
+              <RotateCcw size={15} />{tr("恢复移动设置")}</Button>
           )}
         </div>
         {movement ? (
           <div className="assist-location">
             <MapPin size={20} />
             <div>
-              <strong>{movement.mapName || `地图 #${movement.mapId}`}</strong>
-              <span>
-                地图 #{movement.mapId} · X {movement.x} / Y {movement.y}
+              <strong>{movement.mapName || tr`地图 #${movement.mapId}`}</strong>
+              <span>{tr("地图 #")}{movement.mapId} · X {movement.x} / Y {movement.y}
               </span>
             </div>
-            <span className="tag">当前地点</span>
+            <span className="tag">{tr("当前地点")}</span>
           </div>
         ) : (
-          <p className="muted">
-            从工作台重新启动成品，再进入游戏地图，这里会显示角色位置与移动设置。
-          </p>
+          <p className="muted">{tr("从工作台重新启动成品，再进入游戏地图，这里会显示角色位置与移动设置。")}</p>
         )}
         {movement && (
           <div className="assist-exploration-controls">
             {actions.has("setThrough") && (
               <label className="toggle-line">
                 <div>
-                  <strong>穿墙</strong>
-                  <small>开启后可通过地形与阻挡物</small>
+                  <strong>{tr("穿墙")}</strong>
+                  <small>{tr("开启后可通过地形与阻挡物")}</small>
                 </div>
                 <input
                   type="checkbox"
-                  aria-label="穿墙"
+                  aria-label={tr("穿墙")}
                   role="switch"
                   checked={movement.through}
                   disabled={busy}
@@ -164,12 +158,12 @@ export default function AssistExploration({
             {actions.has("setEncounter") && (
               <label className="toggle-line">
                 <div>
-                  <strong>随机遇敌</strong>
-                  <small>开启后，行走时可触发随机战斗</small>
+                  <strong>{tr("随机遇敌")}</strong>
+                  <small>{tr("开启后，行走时可触发随机战斗")}</small>
                 </div>
                 <input
                   type="checkbox"
-                  aria-label="随机遇敌"
+                  aria-label={tr("随机遇敌")}
                   role="switch"
                   checked={movement.encounterEnabled}
                   disabled={busy}
@@ -184,11 +178,10 @@ export default function AssistExploration({
             )}
             {actions.has("setMoveSpeed") && (
               <label className="field assist-speed">
-                <span>
-                  移动速度 <small>当前档位 {movement.moveSpeed}</small>
+                <span>{tr("移动速度 ")}<small>{tr("当前档位 ")}{movement.moveSpeed}</small>
                 </span>
                 <select
-                  aria-label="移动速度"
+                  aria-label={tr("移动速度")}
                   value={movement.moveSpeed}
                   disabled={busy}
                   onChange={(event) =>
@@ -208,9 +201,7 @@ export default function AssistExploration({
             )}
           </div>
         )}
-        <p className="assist-hint muted">
-          修改立即生效。“恢复移动设置”会还原本次辅助调整前的穿墙、移动速度与随机遇敌设置；游戏后续改动的设置继续保留。
-        </p>
+        <p className="assist-hint muted">{tr("修改立即生效。“恢复移动设置”会还原本次辅助调整前的穿墙、移动速度与随机遇敌设置；游戏后续改动的设置继续保留。")}</p>
       </section>
       {error && (
         <div className="banner error" role="alert">
@@ -221,12 +212,10 @@ export default function AssistExploration({
         {actions.has("jump") && (
           <section className="panel">
             <div className="panel-heading">
-              <h2>向指定方向跳跃</h2>
-              <span className="tag">以格为单位</span>
+              <h2>{tr("向指定方向跳跃")}</h2>
+              <span className="tag">{tr("以格为单位")}</span>
             </div>
-            <p className="assist-section-intro">
-              以当前地点为起点，横向与纵向各跳过指定格数。
-            </p>
+            <p className="assist-section-intro">{tr("以当前地点为起点，横向与纵向各跳过指定格数。")}</p>
             <form
               onSubmit={(event) => {
                 event.preventDefault();
@@ -238,7 +227,7 @@ export default function AssistExploration({
                   !dx.trim() ||
                   !dy.trim()
                 ) {
-                  setError("横向与纵向都需要填写整数。向右 2 格填 2，向上 1 格填 -1。");
+                  setError(tr("横向与纵向都需要填写整数。向右 2 格填 2，向上 1 格填 -1。"));
                   return;
                 }
                 void send({ action: "jump", params: { dx: jumpX, dy: jumpY } });
@@ -246,9 +235,9 @@ export default function AssistExploration({
             >
               <div className="assist-coordinate-fields">
                 <label className="field">
-                  <span>横向格数</span>
+                  <span>{tr("横向格数")}</span>
                   <input
-                    aria-label="跳跃横向格数"
+                    aria-label={tr("跳跃横向格数")}
                     type="number"
                     step="1"
                     min="-20"
@@ -259,9 +248,9 @@ export default function AssistExploration({
                   />
                 </label>
                 <label className="field">
-                  <span>纵向格数</span>
+                  <span>{tr("纵向格数")}</span>
                   <input
-                    aria-label="跳跃纵向格数"
+                    aria-label={tr("跳跃纵向格数")}
                     type="number"
                     step="1"
                     min="-20"
@@ -272,9 +261,7 @@ export default function AssistExploration({
                   />
                 </label>
               </div>
-              <p className="assist-hint muted">
-                横向：向左填负数，向右填正数。纵向：向上填负数，向下填正数。每次各填 -20 到 20 格。
-              </p>
+              <p className="assist-hint muted">{tr("横向：向左填负数，向右填正数。纵向：向上填负数，向下填正数。每次各填 -20 到 20 格。")}</p>
               <Button
                 type="submit"
                 disabled={
@@ -282,42 +269,38 @@ export default function AssistExploration({
                   !movement?.canTransfer ||
                   (Number(dx) === 0 && Number(dy) === 0)
                 }
-              >
-                执行跳跃
-              </Button>
+              >{tr("执行跳跃")}</Button>
             </form>
           </section>
         )}
         {actions.has("transfer") && (
           <section className="panel">
             <div className="panel-heading">
-              <h2>地图传送</h2>
+              <h2>{tr("地图传送")}</h2>
               <span className="tag">
-                {loading ? "读取地图中" : `${maps.length} 张地图`}
+                {loading ? tr("读取地图中") : tr`${maps.length} 张地图`}
               </span>
             </div>
             {!loading && maps.length === 0 && (
               <Button
                 disabled={busy}
                 onClick={() => setMapReload((current) => current + 1)}
-              >
-                重新读取地图
-              </Button>
+              >{tr("重新读取地图")}</Button>
             )}
             <form onSubmit={prepareTransfer}>
               <label className="search-field assist-search">
                 <Search size={17} />
                 <input
-                  aria-label="搜索传送地图"
-                  placeholder="搜索地图名称或编号"
+                  aria-label={tr("搜索传送地图")}
+                  placeholder={tr("搜索地图名称或编号")}
                   value={search}
                   onChange={(event) => setSearch(event.target.value)}
                 />
               </label>
               <label className="field">
-                <span>目标地图</span>
+                <span>{tr("目标地图")}</span>
                 <select
-                  aria-label="目标地图"
+                  aria-label={tr("目标地图")}
                   value={mapId}
                   disabled={loading || busy}
                   onChange={(event) => {
@@ -326,7 +309,7 @@ export default function AssistExploration({
                     setY("");
                   }}
                 >
-                  <option value="">选择目标地图</option>
+                  <option value="">{tr("选择目标地图")}</option>
                   {selectedMap &&
                     !visibleMaps.some((map) => map.id === selectedMap.id) && (
                       <option value={selectedMap.id}>
@@ -335,7 +318,7 @@ export default function AssistExploration({
                     )}
                   {visibleMaps.map((map) => (
                     <option key={map.id} value={map.id}>
-                      {map.name || "未命名地图"} · #{map.id} · {map.width}×
+                      {map.name || tr("未命名地图")} · #{map.id} · {map.width}×
                       {map.height}
                     </option>
                   ))}
@@ -345,11 +328,10 @@ export default function AssistExploration({
                 <>
                   <div className="assist-coordinate-fields">
                     <label className="field">
-                      <span>
-                        X 坐标 <small>0–{selectedMap.width - 1}</small>
+                      <span>{tr("X 坐标 ")}<small>0–{selectedMap.width - 1}</small>
                       </span>
                       <input
-                        aria-label="传送 X 坐标"
+                        aria-label={tr("传送 X 坐标")}
                         type="number"
                         min="0"
                         max={selectedMap.width - 1}
@@ -360,11 +342,10 @@ export default function AssistExploration({
                       />
                     </label>
                     <label className="field">
-                      <span>
-                        Y 坐标 <small>0–{selectedMap.height - 1}</small>
+                      <span>{tr("Y 坐标 ")}<small>0–{selectedMap.height - 1}</small>
                       </span>
                       <input
-                        aria-label="传送 Y 坐标"
+                        aria-label={tr("传送 Y 坐标")}
                         type="number"
                         min="0"
                         max={selectedMap.height - 1}
@@ -376,16 +357,16 @@ export default function AssistExploration({
                     </label>
                   </div>
                   <label className="field">
-                    <span>抵达朝向</span>
+                    <span>{tr("抵达朝向")}</span>
                     <select
-                      aria-label="抵达朝向"
+                      aria-label={tr("抵达朝向")}
                       value={direction}
                       onChange={(event) => setDirection(event.target.value)}
                     >
-                      <option value="2">向下</option>
-                      <option value="4">向左</option>
-                      <option value="6">向右</option>
-                      <option value="8">向上</option>
+                      <option value="2">{tr("向下")}</option>
+                      <option value="4">{tr("向左")}</option>
+                      <option value="6">{tr("向右")}</option>
+                      <option value="8">{tr("向上")}</option>
                     </select>
                   </label>
                 </>
@@ -394,13 +375,9 @@ export default function AssistExploration({
                 type="submit"
                 variant="primary"
                 disabled={busy || !selectedMap || !movement?.canTransfer}
-              >
-                下一步：确认传送
-              </Button>
+              >{tr("下一步：确认传送")}</Button>
               {movement && !movement.canTransfer && (
-                <p className="assist-hint muted">
-                  先结束对话或战斗，回到可自由行走的地图后，再执行跳跃或传送。
-                </p>
+                <p className="assist-hint muted">{tr("先结束对话或战斗，回到可自由行走的地图后，再执行跳跃或传送。")}</p>
               )}
             </form>
           </section>
@@ -408,18 +385,13 @@ export default function AssistExploration({
       </div>
       {destination && (
         <Modal
-          title="传送到指定地点"
+          title={tr("传送到指定地点")}
           onClose={() => setDestination(null)}
           busy={busy}
         >
-          <p className="dialog-intro">
-            前往 {destination.map.name} · X {destination.x} / Y {destination.y}
-            。确认后立即传送；跨地图时会离开当前场景。
-          </p>
+          <p className="dialog-intro">{tr("前往 ")}{destination.map.name} · X {destination.x} / Y {destination.y}{tr("。确认后立即传送；跨地图时会离开当前场景。")}</p>
           <div className="dialog-actions">
-            <Button disabled={busy} onClick={() => setDestination(null)}>
-              取消
-            </Button>
+            <Button disabled={busy} onClick={() => setDestination(null)}>{tr("取消")}</Button>
             <Button
               variant="primary"
               busy={busy}
@@ -440,9 +412,7 @@ export default function AssistExploration({
                     setDestination(null);
                 });
               }}
-            >
-              传送到这里
-            </Button>
+            >{tr("传送到这里")}</Button>
           </div>
         </Modal>
       )}

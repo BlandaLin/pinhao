@@ -1,3 +1,4 @@
+import { tr, uiLocale, uiLanguage } from "../shared/ui-language.js";
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import {
   ArrowDownToLine,
@@ -22,37 +23,37 @@ import { ProgressPanel, readProgress } from "./status";
 
 const pageSize = 40;
 const kindNames: Record<string, string> = {
-  dialogue: "对话",
-  message: "对话",
-  choice: "选项",
-  name: "名称",
-  description: "说明",
-  script: "脚本显示文字",
-  database: "游戏资料",
-  text: "文字",
-  nickname: "称号或昵称",
-  database_nickname: "称号或昵称",
-  speaker: "说话人名称",
-  speaker_name: "说话人名称",
-  character_name: "角色名称",
-  database_name: "名称",
-  database_profile: "人物简介",
-  database_description: "说明",
-  map_display_name: "地图名称",
-  actor_attribute: "角色名称",
-  system_text: "系统文字",
-  system_type: "类型名称",
-  system_term: "系统用语",
-  display_name: "显示名称",
-  display_attribute: "显示属性",
-  script_display: "动态显示文字",
-  picture_text: "图片文字",
+  dialogue: tr("对话"),
+  message: tr("对话"),
+  choice: tr("选项"),
+  name: tr("名称"),
+  description: tr("说明"),
+  script: tr("脚本显示文字"),
+  database: tr("游戏资料"),
+  text: tr("文字"),
+  nickname: tr("称号或昵称"),
+  database_nickname: tr("称号或昵称"),
+  speaker: tr("说话人名称"),
+  speaker_name: tr("说话人名称"),
+  character_name: tr("角色名称"),
+  database_name: tr("名称"),
+  database_profile: tr("人物简介"),
+  database_description: tr("说明"),
+  map_display_name: tr("地图名称"),
+  actor_attribute: tr("角色名称"),
+  system_text: tr("系统文字"),
+  system_type: tr("类型名称"),
+  system_term: tr("系统用语"),
+  display_name: tr("显示名称"),
+  display_attribute: tr("显示属性"),
+  script_display: tr("动态显示文字"),
+  picture_text: tr("图片文字"),
 };
 const statusNames = {
-  pending: "待翻译",
-  translated: "已翻译",
-  proofread: "校对已完成",
-  skipped: "待重试",
+  pending: tr("待翻译"),
+  translated: tr("已翻译"),
+  proofread: tr("校对已完成"),
+  skipped: tr("待重试"),
 };
 
 export default function Workbench({
@@ -179,7 +180,7 @@ export default function Workbench({
 
   function changeFilter(next: string) {
     if ((viewingReview || next === "reviewed") && dirty) {
-      onNotice("此条译文或备注有待保存的修改，请先保存，或读取已保存版本后再切换查看。");
+      onNotice(tr("此条译文或备注有待保存的修改，请先保存，或读取已保存版本后再切换查看。"));
       return;
     }
     if (viewingReview || next === "reviewed") {
@@ -208,7 +209,7 @@ export default function Workbench({
     const value = pageDraft.trim();
     const page = Number(value);
     if (!/^\d+$/.test(value) || !Number.isSafeInteger(page) || page < 1 || page > pageCount) {
-      onNotice(`请输入 1 到 ${pageCount} 之间的整数页码`);
+      onNotice(tr`请输入 1 到 ${pageCount} 之间的整数页码`);
       return;
     }
     setPageDraft(String(page));
@@ -259,7 +260,7 @@ export default function Workbench({
           unit.id === saved.id ? saved : unit,
         ),
       }));
-      onNotice(action === 'confirm' ? "此条文字已由你明确确认；关联文字的独立疑点保持不变" : "译文与备注已保存，未自动标记为已校对");
+      onNotice(action === 'confirm' ? tr("此条文字已由你明确确认；关联文字的独立疑点保持不变") : tr("译文与备注已保存，未自动标记为已校对"));
       await onRefresh();
     } catch (error) {
       onError(error);
@@ -281,7 +282,7 @@ export default function Workbench({
         limit: 10,
       });
       const unit = latest.units.find((item) => item.id === unitId);
-      if (!unit) throw new Error("此条文字需要重新查找。请在文字工作台搜索原文，再打开对应条目。");
+      if (!unit) throw new Error(tr("此条文字需要重新查找。请在文字工作台搜索原文，再打开对应条目。"));
       if (
         projectRef.current !== projectId ||
         viewRef.current !== view ||
@@ -304,16 +305,16 @@ export default function Workbench({
   return (
     <>
       <Heading
-        title="文字工作台"
-        description="查看原文和上下文，修改译文，或用文字工作包交换外部翻译成果。"
+        title={tr("文字工作台")}
+        description={tr("查看原文和上下文，修改译文，或用文字工作包交换外部翻译成果。")}
       >
         <Button onClick={() => setExchange("import")}>
           <ArrowDownToLine size={16} />
-          导入文字工作包
+          {tr("导入文字工作包")}
         </Button>
         <Button onClick={() => setExchange("export")}>
           <ArrowUpFromLine size={16} />
-          导出文字工作包
+          {tr("导出文字工作包")}
         </Button>
       </Heading>
       <ProgressPanel progress={readProgress(project)} compact onViewSceneReview={viewSceneResults} />
@@ -321,52 +322,52 @@ export default function Workbench({
         <label className="search-field">
           <Search size={17} />
           <input
-            aria-label="搜索文字"
+            aria-label={tr("搜索文字")}
             value={search}
             onChange={(event) => {
               setSearch(event.target.value);
               setOffset(0);
               setPageDraft("1");
             }}
-            placeholder="搜索原文、译文或条目编号"
+            placeholder={tr("搜索原文、译文或条目编号")}
           />
         </label>
         <select
-          aria-label="筛选文字状态"
+          aria-label={tr("筛选文字状态")}
           value={filter}
           onChange={(event) => changeFilter(event.target.value)}
         >
-          <option value="all">全部文字</option>
-          <option value="pending">待翻译</option>
-          <option value="translated">已翻译</option>
-          <option value="reviewed">场景审阅结果（已保存）</option>
-          <option value="proofread">校对已完成</option>
-          <option value="needs_evidence">待核对疑点</option>
-          <option value="skipped">待重试</option>
-          <option value="changed">已修改</option>
+          <option value="all">{tr("全部文字")}</option>
+          <option value="pending">{tr("待翻译")}</option>
+          <option value="translated">{tr("已翻译")}</option>
+          <option value="reviewed">{tr("场景审阅结果（已保存）")}</option>
+          <option value="proofread">{tr("校对已完成")}</option>
+          <option value="needs_evidence">{tr("待核对疑点")}</option>
+          <option value="skipped">{tr("待重试")}</option>
+          <option value="changed">{tr("已修改")}</option>
         </select>
-        <span className="muted">{result.total.toLocaleString()} 条</span>
+        <span className="muted">{result.total.toLocaleString(uiLocale)} {tr("条")}</span>
       </div>
       {viewingReview && <p className="workbench-view-note" role="status">
-        <strong>场景审阅结果（已保存）</strong>{" · "}
+        <strong>{tr("场景审阅结果（已保存）")}</strong>{" · "}
         {result.sceneReview?.committed
-          ? "本轮校对已完成；这里保留场景审阅时的结果，定稿后的译文请查看“校对已完成”。"
-          : "仅查看已保存的场景校对译文与备注；收尾检查后统一更新当前译文。"}
-        <Button variant="ghost" onClick={() => changeFilter("all")}>返回全部文字</Button>
+          ? tr("本轮校对已完成；这里保留场景审阅时的结果，定稿后的译文请查看“校对已完成”。")
+          : tr("仅查看已保存的场景校对译文与备注；收尾检查后统一更新当前译文。")}
+        <Button variant="ghost" onClick={() => changeFilter("all")}>{tr("返回全部文字")}</Button>
       </p>}
       {project.total === 0 ? (
         project.status === "preparing" || project.status === "running" ? (
-          <LoadingState title="正在提取文字" detail="已提取的文字与上下文会显示在这里。可在“制作总览”查看当前进度。" />
+          <LoadingState title={tr("正在提取文字")} detail={tr("已提取的文字与上下文会显示在这里。可在“制作总览”查看当前进度。")} />
         ) : (
-          <Empty title="当前项目已提取 0 条文字">
-            打开“制作总览”，查看文件处理进度和下一步操作。
+          <Empty title={tr("当前项目已提取 0 条文字")}>
+            {tr("打开“制作总览”，查看文件处理进度和下一步操作。")}
           </Empty>
         )
       ) : (
         <div className={`workbench-grid ${mobileEditor ? "show-editor" : ""}`}>
           <section
             className="unit-list"
-            aria-label="文字条目列表"
+            aria-label={tr("文字条目列表")}
             aria-busy={loading}
           >
             {result.units.length ? (
@@ -378,18 +379,18 @@ export default function Workbench({
                 >
                   <div>
                     <span className="tag">
-                      {kindNames[unit.kind] || "其他游戏文字"}
+                      {kindNames[unit.kind] || tr("其他游戏文字")}
                     </span>
                     <small
                       className={
                         unit.status === "pending" ? "muted" : "accent-text"
                       }
                     >
-                      {viewingReview ? "场景已审阅 · 已保存" : unit.review?.status === "needs_evidence" ? unit.review.reviewId.startsWith('external-question-') ? "待确认 · 需再核对" : "已审阅 · 需再核对" : statusNames[unit.status]}
+                      {viewingReview ? tr("场景已审阅 · 已保存") : unit.review?.status === "needs_evidence" ? unit.review.reviewId.startsWith('external-question-') ? tr("待确认 · 需再核对") : tr("已审阅 · 需再核对") : statusNames[unit.status]}
                     </small>
                   </div>
                   <strong>
-                    {unit.translation || unit.source || "空文字条目"}
+                    {unit.translation || unit.source || tr("空文字条目")}
                   </strong>
                   <p>{unit.translation ? unit.source : unit.id}</p>
                 </button>
@@ -397,49 +398,49 @@ export default function Workbench({
             ) : (
               <div className="list-empty" role="status">
                 {loading && <LoaderCircle size={18} className="spin" aria-hidden="true" />}
-                {loading ? "正在检索文字…"
+                {loading ? tr("正在检索文字…")
                   : filter === "proofread" && project.proofread === 0 && unfinishedReview ? <>
-                    <strong>本轮校对尚未完成</strong>
-                    <p>场景审阅结果会持续保存，收尾检查后才会显示在“校对已完成”中。</p>
-                    <Button onClick={viewSceneResults}>查看场景审阅结果</Button>
+                    <strong>{tr("本轮校对尚未完成")}</strong>
+                    <p>{tr("场景审阅结果会持续保存，收尾检查后才会显示在“校对已完成”中。")}</p>
+                    <Button onClick={viewSceneResults}>{tr("查看场景审阅结果")}</Button>
                   </> : viewingReview && result.sceneReview?.state === "changed" ? <>
-                    <strong>已开始新一轮校对</strong>
-                    <p>当前查看的轮次已结束，请重新选择本轮结果。</p>
-                    <Button onClick={viewSceneResults}>查看本轮场景结果</Button>
+                    <strong>{tr("已开始新一轮校对")}</strong>
+                    <p>{tr("当前查看的轮次已结束，请重新选择本轮结果。")}</p>
+                    <Button onClick={viewSceneResults}>{tr("查看本轮场景结果")}</Button>
                   </> : viewingReview ? (search.trim()
-                    ? "没有符合搜索条件的场景审阅结果，请调整搜索词。"
-                    : "暂时没有已保存的场景审阅结果。校对结果保存后会显示在这里。")
-                  : "找到 0 条文字。请调整搜索词或筛选条件。"}
+                    ? tr("没有符合搜索条件的场景审阅结果，请调整搜索词。")
+                    : tr("暂时没有已保存的场景审阅结果。校对结果保存后会显示在这里。"))
+                  : tr("找到 0 条文字。请调整搜索词或筛选条件。")}
               </div>
             )}
-            <form className="pagination" aria-label="文字列表分页" onSubmit={jumpPage} noValidate>
+            <form className="pagination" aria-label={tr("文字列表分页")} onSubmit={jumpPage} noValidate>
               <Button
-                aria-label="上一页"
+                aria-label={tr("上一页")}
                 disabled={offset === 0 || loading}
                 onClick={() => setOffset(Math.max(0, offset - pageSize))}
               >
                 <ChevronLeft size={17} />
               </Button>
               <label className="page-jump-label">
-                <span>第</span>
+                <span>{tr("第")}</span>
                 <input
-                  aria-label="跳转页码"
+                  aria-label={tr("跳转页码")}
                   inputMode="numeric"
                   value={pageDraft}
                   disabled={loading || !pageCount}
                   onChange={(event) => setPageDraft(event.target.value)}
                 />
-                <span>/ {pageCount} 页</span>
+                <span>/ {pageCount} {tr("页")}</span>
               </label>
-              <Button type="submit" disabled={loading || !pageCount}>跳转</Button>
+              <Button type="submit" disabled={loading || !pageCount}>{tr("跳转")}</Button>
               <Button
-                aria-label="下一页"
+                aria-label={tr("下一页")}
                 disabled={offset + pageSize >= result.total || loading}
                 onClick={() => setOffset(offset + pageSize)}
               >
                 <ChevronRight size={17} />
               </Button>
-              {loading && <span className="pagination-status" role="status">正在加载…</span>}
+              {loading && <span className="pagination-status" role="status">{tr("正在加载…")}</span>}
             </form>
           </section>
           <section className="unit-editor">
@@ -451,14 +452,14 @@ export default function Workbench({
                     onClick={() => setMobileEditor(false)}
                   >
                     <ChevronLeft size={16} />
-                    返回列表
+                    {tr("返回列表")}
                   </button>
                   <div>
                     <span className="tag gold">
-                      {kindNames[selected.kind] || "其他游戏文字"}
+                      {kindNames[selected.kind] || tr("其他游戏文字")}
                     </span>
-                    <small>版本 {selected.revision}</small>
-                    {!viewingReview && selected.review?.status === "needs_evidence" && <small>当前译文已保留。可查看下方上下文手动修改，或到“制作总览”定向重审疑点。</small>}
+                    <small>{tr("版本")} {selected.revision}</small>
+                    {!viewingReview && selected.review?.status === "needs_evidence" && <small>{tr("当前译文已保留。可查看下方上下文手动修改，或到“制作总览”定向重审疑点。")}</small>}
                   </div>
                   {!viewingReview && <Button
                     variant="primary"
@@ -467,39 +468,39 @@ export default function Workbench({
                     onClick={() => void save()}
                   >
                     <Save size={16} />
-                    保存译文
+                    {tr("保存译文")}
                   </Button>}
                   {!viewingReview && <Button
                     variant="ghost"
                     disabled={saving || loading}
                     onClick={() => void save('confirm')}
                   >
-                    确认此条已核对
+                    {tr("确认此条已核对")}
                   </Button>}
                 </div>
                 {!viewingReview && <Button
                   variant="ghost"
-                  title="将此条译文和备注更新为已保存的最新版本"
+                  title={tr("将此条译文和备注更新为已保存的最新版本")}
                   disabled={saving || loading}
                   onClick={() =>
                     dirty ? setReloadConfirm(true) : void readLatest()
                   }
                 >
                   <RefreshCw size={15} />
-                  <span className="reload-text">读取已保存版本</span>
+                  <span className="reload-text">{tr("读取已保存版本")}</span>
                 </Button>}
                 <p className="unit-id">{selected.id}</p>
                 <div className="source-block">
-                  <h2>原文</h2>
-                  <p>{selected.source || "（空）"}</p>
+                  <h2>{tr("原文")}</h2>
+                  <p>{selected.source || tr("（空）")}</p>
                 </div>
                 <label className="field translation-field">
                   <span>
-                    {viewingReview ? "场景校对译文" : "当前译文"}{" "}
-                    {dirty && <small className="accent-text">本次修改待保存</small>}
+                    {viewingReview ? tr("场景校对译文") : tr("当前译文")}{" "}
+                    {dirty && <small className="accent-text">{tr("本次修改待保存")}</small>}
                   </span>
                   <textarea
-                    aria-label={viewingReview ? "场景校对译文" : "当前译文"}
+                    aria-label={viewingReview ? tr("场景校对译文") : tr("当前译文")}
                     readOnly={viewingReview}
                     value={translation}
                     onChange={(event) => setTranslation(event.target.value)}
@@ -513,40 +514,40 @@ export default function Workbench({
                       }
                     }}
                     rows={7}
-                    placeholder="在这里填写译文"
+                    placeholder={tr("在这里填写译文")}
                   />
                 </label>
                 {selected.tokens.length > 0 && (
                   <div className="token-strip">
-                    <span>译文中按原顺序保留以下符号</span>
+                    <span>{tr("译文中按原顺序保留以下符号")}</span>
                     {selected.tokens.map((token, index) => (
                       <code key={`${token}-${index}`}>{token}</code>
                     ))}
                   </div>
                 )}
                 <label className="field">
-                  <span>译者备注</span>
+                  <span>{tr("译者备注")}</span>
                   <textarea
-                    aria-label="译者备注"
+                    aria-label={tr("译者备注")}
                     readOnly={viewingReview}
                     value={notes}
                     onChange={(event) => setNotes(event.target.value)}
                     rows={2}
-                    placeholder="术语、疑点或校对说明"
+                    placeholder={tr("术语、疑点或校对说明")}
                   />
                 </label>
                 <details className="context-block" open>
-                  <summary>上下文与位置</summary>
+                  <summary>{tr("上下文与位置")}</summary>
                   <Context value={selected.context} />
                 </details>
                 <div className="editor-footnote">
-                  <Check size={14} />{viewingReview ? "这里只查看已保存的场景校对结果。要手动修改当前译文，请返回“全部文字”。"
-                    : <>按 Ctrl + Enter 保存译文与备注。其他任务已修改此条时，会提示你重新读取。
-                      {selected.context.syncGroup ? "此条译文与其他显示位置关联，保存时会同步修改那些位置的译文，备注仅保存到此条。" : ""}</>}
+                  <Check size={14} />{viewingReview ? tr("这里只查看已保存的场景校对结果。要手动修改当前译文，请返回“全部文字”。")
+                    : <>{tr("按 Ctrl + Enter 保存译文与备注。其他任务已修改此条时，会提示你重新读取。")}
+                      {selected.context.syncGroup ? tr("此条译文与其他显示位置关联，保存时会同步修改那些位置的译文，备注仅保存到此条。") : ""}</>}
                 </div>
               </>
             ) : (
-              <Empty title="选择一条文字">点击文字列表中的条目，查看原文和上下文。</Empty>
+              <Empty title={tr("选择一条文字")}>{tr("点击文字列表中的条目，查看原文和上下文。")}</Empty>
             )}
           </section>
         </div>
@@ -565,12 +566,12 @@ export default function Workbench({
         />
       )}
       {pendingUnit && (
-        <Modal title="切换前处理本次修改" onClose={() => setPendingUnit(null)}>
+        <Modal title={tr("切换前处理本次修改")} onClose={() => setPendingUnit(null)}>
           <p className="dialog-intro">
-            此条译文或备注有待保存的修改。选择“继续编辑”可返回保存；选择“放弃修改并切换”会丢弃本次修改，打开另一条文字。
+            {tr("此条译文或备注有待保存的修改。选择“继续编辑”可返回保存；选择“放弃修改并切换”会丢弃本次修改，打开另一条文字。")}
           </p>
           <div className="dialog-actions">
-            <Button onClick={() => setPendingUnit(null)}>继续编辑</Button>
+            <Button onClick={() => setPendingUnit(null)}>{tr("继续编辑")}</Button>
             <Button
               variant="danger"
               onClick={() => {
@@ -581,30 +582,30 @@ export default function Workbench({
                 setPendingUnit(null);
               }}
             >
-              放弃修改并切换
+              {tr("放弃修改并切换")}
             </Button>
           </div>
         </Modal>
       )}
       {reloadConfirm && (
         <Modal
-          title="读取已保存版本"
+          title={tr("读取已保存版本")}
           onClose={() => setReloadConfirm(false)}
           busy={loading}
         >
           <p className="dialog-intro">
-            读取此条译文和备注已保存的最新版本，并替换编辑框中的内容。本次待保存的修改会被丢弃。
+            {tr("读取此条译文和备注已保存的最新版本，并替换编辑框中的内容。本次待保存的修改会被丢弃。")}
           </p>
           <div className="dialog-actions">
             <Button onClick={() => setReloadConfirm(false)} disabled={loading}>
-              继续编辑
+              {tr("继续编辑")}
             </Button>
             <Button
               variant="primary"
               busy={loading}
               onClick={() => void readLatest()}
             >
-              放弃修改并读取
+              {tr("放弃修改并读取")}
             </Button>
           </div>
         </Modal>
@@ -617,39 +618,39 @@ function Context({ value }: { value: Record<string, unknown> }) {
   const entries = Object.entries(value);
   if (!entries.length)
     return (
-      <p className="muted spaced">此条文字提供了条目编号和文字类型。可结合原文判断含义。</p>
+      <p className="muted spaced">{tr("此条文字提供了条目编号和文字类型。可结合原文判断含义。")}</p>
     );
   const labels: Record<string, string> = {
-    file: "原文所在文件",
-    path: "位置",
-    map: "地图",
-    event: "事件",
-    speaker: "说话人",
-    scene: "场景",
-    before: "前文",
-    after: "后文",
-    branch: "分支",
-    page: "事件页",
-    previous: "前文",
-    next: "后文",
-    route: "路线",
-    command: "事件指令",
-    record: "记录编号",
-    field: "显示字段",
-    line: "行号",
-    column: "列号",
-    index: "序号",
-    label: "场景标签",
-    node: "场景节点",
-    property: "属性名称",
-    attribute: "属性名称",
-    code: "事件指令编号",
-    indent: "事件指令层级",
-    syncGroup: "需使用相同译文的关联组",
-    adaptationLocator: "补充文字在文件中的位置",
-    adaptationSourceHash: "原文内容校验值",
-    controlFingerprint: "控制符校验值",
-    protectedControlSyntax: "需保留的控制符规则",
+    file: tr("原文所在文件"),
+    path: tr("位置"),
+    map: tr("地图"),
+    event: tr("事件"),
+    speaker: tr("说话人"),
+    scene: tr("场景"),
+    before: tr("前文"),
+    after: tr("后文"),
+    branch: tr("分支"),
+    page: tr("事件页"),
+    previous: tr("前文"),
+    next: tr("后文"),
+    route: tr("路线"),
+    command: tr("事件指令"),
+    record: tr("记录编号"),
+    field: tr("显示字段"),
+    line: tr("行号"),
+    column: tr("列号"),
+    index: tr("序号"),
+    label: tr("场景标签"),
+    node: tr("场景节点"),
+    property: tr("属性名称"),
+    attribute: tr("属性名称"),
+    code: tr("事件指令编号"),
+    indent: tr("事件指令层级"),
+    syncGroup: tr("需使用相同译文的关联组"),
+    adaptationLocator: tr("补充文字在文件中的位置"),
+    adaptationSourceHash: tr("原文内容校验值"),
+    controlFingerprint: tr("控制符校验值"),
+    protectedControlSyntax: tr("需保留的控制符规则"),
   };
   return (
     <dl className="context-values">
@@ -684,7 +685,7 @@ function Exchange({
 }) {
   const [path, setPath] = useState(
     mode === "export"
-      ? `${project.workspaceDir}\\${project.name}-文字工作包.zip`
+      ? `${project.workspaceDir}\\${project.name}${uiLanguage === "en" ? "-text-package.zip" : "-文字工作包.zip"}`
       : "",
   );
   const [profile, setProfile] = useState<"json" | "text">("json");
@@ -707,7 +708,7 @@ function Exchange({
           profile,
           taskStage,
         });
-        onNotice(`文字工作包已保存到 ${path.trim()}`);
+        onNotice(tr`文字工作包已保存到 ${path.trim()}`);
         onClose();
       } else {
         const imported = await api.importPackage({
@@ -718,8 +719,8 @@ function Exchange({
         await onImported();
         onNotice(
           imported.conflicts.length
-            ? `工作包有 ${imported.conflicts.length} 条冲突，本次整包暂不导入。请核对下方差异后重新导入。`
-            : `已导入 ${imported.accepted} 条，沿用当前内容 ${imported.unchanged} 条。`,
+            ? tr`工作包有 ${imported.conflicts.length} 条冲突，本次整包暂不导入。请核对下方差异后重新导入。`
+            : tr`已导入 ${imported.accepted} 条，沿用当前内容 ${imported.unchanged} 条。`,
         );
       }
     } catch (error) {
@@ -731,7 +732,7 @@ function Exchange({
   }
   return (
     <Modal
-      title={mode === "export" ? "导出文字工作包" : "导入文字工作包"}
+      title={mode === "export" ? tr("导出文字工作包") : tr("导入文字工作包")}
       error={localError}
       onClose={onClose}
       busy={busy}
@@ -739,11 +740,11 @@ function Exchange({
       <form onSubmit={(event) => void submit(event)}>
         <p className="dialog-intro">
           {mode === "export"
-            ? "导出 ZIP 文件，交给外部 AI 或译者翻译、校对。工作包包含原文、已有译文、上下文和阅读说明；处理后将工作包导回这里。"
-            : "选择处理后的 ZIP 工作包。软件会比较导出时的版本、项目当前版本和包内的新版本。译文或备注发生冲突时，整包暂不导入，当前项目保持原样；核对并统一两边的修改后可重新导入。"}
+            ? tr("导出 ZIP 文件，交给外部 AI 或译者翻译、校对。工作包包含原文、已有译文、上下文和阅读说明；处理后将工作包导回这里。")
+            : tr("选择处理后的 ZIP 工作包。软件会比较导出时的版本、项目当前版本和包内的新版本。译文或备注发生冲突时，整包暂不导入，当前项目保持原样；核对并统一两边的修改后可重新导入。")}
         </p>
         <PathField
-          label={mode === "export" ? "工作包保存位置" : "处理后的工作包"}
+          label={mode === "export" ? tr("工作包保存位置") : tr("处理后的工作包")}
           kind={mode === "export" ? "save" : "package"}
           value={path}
           onChange={setPath}
@@ -751,49 +752,49 @@ function Exchange({
         />
         {mode === "export" && (
           <label className="field">
-            <span>本次工作阶段</span>
-            <select aria-label="工作包阶段" value={taskStage}
+            <span>{tr("本次工作阶段")}</span>
+            <select aria-label={tr("工作包阶段")} value={taskStage}
               onChange={event => setTaskStage(event.target.value as 'translation' | 'proofreading')}>
-              <option value="translation">初翻：填写目标文字的译文</option>
-              <option value="proofreading">校对：审阅已有译文</option>
+              <option value="translation">{tr("初翻：填写目标文字的译文")}</option>
+              <option value="proofreading">{tr("校对：审阅已有译文")}</option>
             </select>
-            <small>仅导出材料，不启动模型；无需在软件中配置 API。校对包只选择已有译文。</small>
+            <small>{tr("仅导出材料，不启动模型；无需在软件中配置 API。校对包只选择已有译文。")}</small>
           </label>
         )}
         {mode === "export" && (
           <label className="field">
-            <span>文字编辑格式</span>
+            <span>{tr("文字编辑格式")}</span>
             <select
               value={profile}
               onChange={(event) =>
                 setProfile(event.target.value as "json" | "text")
               }
             >
-              <option value="json">JSON（按字段填写译文和备注）</option>
-              <option value="text">纯文字（在文本文件中填写译文）</option>
+              <option value="json">{tr("JSON（按字段填写译文和备注）")}</option>
+              <option value="text">{tr("纯文字（在文本文件中填写译文）")}</option>
             </select>
           </label>
         )}
         {result && (
           <div className="import-result">
             <p>
-              已导入 <strong>{result.accepted}</strong> 条，沿用当前内容{" "}
-              <strong>{result.unchanged}</strong> 条，需核对冲突{" "}
-              <strong>{result.conflicts.length}</strong> 条。{result.conflicts.length > 0 && "本次整包暂不导入，当前项目保持原样。展开下方条目查看译文差异，并核对双方备注；统一修改后重新导入。可在文字工作台搜索条目编号，查看和修改项目当前内容。"}
+              {tr("已导入")} <strong>{result.accepted}</strong> {tr("条，沿用当前内容")}{" "}
+              <strong>{result.unchanged}</strong> {tr("条，需核对冲突")}{" "}
+              <strong>{result.conflicts.length}</strong> {tr("条。")}{result.conflicts.length > 0 && tr("本次整包暂不导入，当前项目保持原样。展开下方条目查看译文差异，并核对双方备注；统一修改后重新导入。可在文字工作台搜索条目编号，查看和修改项目当前内容。")}
             </p>
             {result.conflicts.map((conflict) => (
               <details key={conflict.id}>
                 <summary>{conflict.id}</summary>
                 <p>
-                  <b>导出时的译文：</b>
+                  <b>{tr("导出时的译文：")}</b>
                   {conflict.baseline}
                 </p>
                 <p>
-                  <b>项目当前译文：</b>
+                  <b>{tr("项目当前译文：")}</b>
                   {conflict.current}
                 </p>
                 <p>
-                  <b>工作包内的新译文：</b>
+                  <b>{tr("工作包内的新译文：")}</b>
                   {conflict.returned}
                 </p>
               </details>
@@ -802,7 +803,7 @@ function Exchange({
         )}
         <div className="dialog-actions">
           <Button onClick={onClose} disabled={busy}>
-            {result ? "完成" : "取消"}
+            {result ? tr("完成") : tr("取消")}
           </Button>
           <Button
             type="submit"
@@ -810,7 +811,7 @@ function Exchange({
             busy={busy}
             disabled={!path.trim()}
           >
-            {mode === "export" ? "导出工作包" : "校验并导入"}
+            {mode === "export" ? tr("导出工作包") : tr("校验并导入")}
           </Button>
         </div>
       </form>

@@ -41,7 +41,7 @@ parentPort.on('message', message => {
 
 try {
   configureSystemTrust();
-  service = await createService({ dataDir: workerData.dataDir, defaultFontPath: workerData.defaultFontPath, deferCatalog: true,
+  service = await createService({ dataDir: workerData.dataDir, defaultFontPath: workerData.defaultFontPath, defaultTargetLanguage: workerData.defaultTargetLanguage, deferCatalog: true,
     ...(workerData.workerOptions?.dshRuntimeRoot ? { adaptationProvider: async options => {
       const { runDshAdaptation } = await import('../../../packages/technical/dsh-runner.mjs');
       return runDshAdaptation({ ...options, dsh: { sourceRoot: workerData.workerOptions.dshRuntimeRoot } });

@@ -65,7 +65,7 @@ const stopsTextWindow = error => fastFailCodes.includes(asError(error).code)
   || error?.name === 'TimeoutError' || /timed? ?out|timeout/i.test(error?.message ?? '');
 const textWindowStopMessage = remaining => `本批已重试 ${textWindowLimit} 次仍未通过${remaining ? `，剩余 ${remaining} 条` : ''}，已暂停并保留当前译文，可手工处理后继续`;
 const windowStopMessage = remaining => `技术适配累计预算已用完，剩余 ${remaining} 项资源未解决；已有成果保留，继续执行需要明确追加预算`;
-export const defaultSettings = () => ({ connection: defaultConnection(), roles: Object.fromEntries(roles.map((role) => [role, { useShared: true, connection: defaultConnection() }])), concurrency: 3, pauseOnLocalFailure: false, processImages: false, proofreading: true, targetLanguage: 'zh-Hans', fontPath: '' });
+export const defaultSettings = (targetLanguage = 'zh-Hans') => ({ connection: defaultConnection(), roles: Object.fromEntries(roles.map((role) => [role, { useShared: true, connection: defaultConnection() }])), concurrency: 3, pauseOnLocalFailure: false, processImages: false, proofreading: true, targetLanguage, fontPath: '' });
 const capabilityFallback = [
   ['mv', 'RPG Maker MV', true], ['mz', 'RPG Maker MZ', true], ['vxace', 'RPG Maker VX Ace', true],
   ['vx', 'RPG Maker VX', true], ['xp', 'RPG Maker XP', true], ['rpg2000', 'RPG Maker 2000/2003', false], ['wolf', 'WOLF RPG Editor', false],
@@ -151,7 +151,7 @@ export function createRunScope(scopeUnitIds) {
 }
 
 /** Persistent domain service. Filesystem and model transports are injected by the desktop host. */
-export async function createService({ dataDir, worker, secrets, provider = sdkProvider, adaptationProvider, adapterLab, displayVerifier, formatCapabilities, coverageScanner, scriptTools, imageTools, recollectionTools, runtimeVerifier, adaptationLimits = {}, defaultFontPath = '', deferCatalog = false, onChanged = () => {} }) {
+export async function createService({ dataDir, worker, secrets, provider = sdkProvider, adaptationProvider, adapterLab, displayVerifier, formatCapabilities, coverageScanner, scriptTools, imageTools, recollectionTools, runtimeVerifier, adaptationLimits = {}, defaultFontPath = '', defaultTargetLanguage = 'zh-Hans', deferCatalog = false, onChanged = () => {} }) {
   if (!dataDir || typeof worker !== 'function') throw new Error('dataDir 和 worker 为必需参数');
   const technicalLimits = { maxHttpAttempts: adaptationLimits.maxHttpAttempts ?? null, maxWindows: adaptationLimits.maxWindows ?? null };
   for (const value of Object.values(technicalLimits)) if (value !== null && (!Number.isSafeInteger(value) || value < 1)) throw new Error('显式技术测试限额需要正整数');
@@ -186,7 +186,8 @@ export async function createService({ dataDir, worker, secrets, provider = sdkPr
     }
     return snapshot;
   };
-  let settings = store.one('settings', 'global') ?? { id: 'global', ...defaultSettings(), fontPath: defaultFontPath };
+  let settings = store.one('settings', 'global') ?? { id: 'global', ...defaultSettings(defaultTargetLanguage), fontPath: defaultFontPath };
+  if (!settings.targetLanguage?.trim()) settings.targetLanguage = defaultTargetLanguage;
   configureRequestSlots(settings.concurrency);
   let closed = false;
   let closing = false;
@@ -2643,7 +2644,7 @@ units = retainTaskUnits(task, current.filter(unit => unit.status === (task.role 
     },
     async saveSettings(input) {
       if (!input || !Number.isInteger(input.concurrency) || input.concurrency < 1 || input.concurrency > 32) throw new Error('并发数范围为 1 到 32');
-      const next = { id: 'global', ...defaultSettings(), concurrency: input.concurrency };
+      const next = { id: 'global', ...defaultSettings(defaultTargetLanguage), concurrency: input.concurrency };
       const persistConnection = async (incoming, previous) => {
         const result = { baseUrl: String(incoming?.baseUrl ?? '').trim(), model: String(incoming?.model ?? '').trim(), ...reasoningPreference(incoming), ...connectionCapacity(incoming) };
         const url = new URL(result.baseUrl);
@@ -2662,7 +2663,7 @@ units = retainTaskUnits(task, current.filter(unit => unit.status === (task.role 
       next.pauseOnLocalFailure = Boolean(input.pauseOnLocalFailure);
       next.processImages = Boolean(input.processImages);
       next.proofreading = input.proofreading !== false;
-      next.targetLanguage = input.targetLanguage?.trim() || 'zh-Hans';
+      next.targetLanguage = input.targetLanguage?.trim() || defaultTargetLanguage;
       next.fontPath = typeof input.fontPath === 'string' ? input.fontPath : '';
       settings = next; configureRequestSlots(settings.concurrency); store.put('settings', settings); emit(); wake(); return publicSettings(settings);
     },

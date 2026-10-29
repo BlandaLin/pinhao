@@ -1,3 +1,4 @@
+import { tr, trc, uiMessage, uiLocale } from "../shared/ui-language.js";
 import {
   useEffect,
   useRef,
@@ -55,9 +56,9 @@ type EditTarget = {
   expectedSaveSha256?: string;
 };
 const dataTabs = [
-  { id: "items", title: "物品与装备", Icon: PackageOpen },
-  { id: "switches", title: "事件开关", Icon: SlidersHorizontal },
-  { id: "variables", title: "游戏变量", Icon: SlidersHorizontal },
+  { id: "items", title: tr("物品与装备"), Icon: PackageOpen },
+  { id: "switches", title: tr("事件开关"), Icon: SlidersHorizontal },
+  { id: "variables", title: tr("游戏变量"), Icon: SlidersHorizontal },
 ] as const;
 
 export default function Assist({
@@ -192,20 +193,20 @@ export default function Assist({
           "restoreMovement",
         ].includes(input.action)
           ? input.action === "restoreMovement"
-            ? "移动设置恢复完成，游戏后续改动的设置会保留。"
-            : "移动与探索的修改已生效。"
+            ? tr("移动设置恢复完成，游戏后续改动的设置会保留。")
+            : tr("移动与探索的修改已生效。")
           : input.action === "setNamedVariable"
-            ? "已修改当前运行值；是否随存档保留由游戏决定，请重新读档核对。"
-            : "修改已立即应用。请在游戏内存档，保留这些改动。",
+            ? tr("已修改当前运行值；是否随存档保留由游戏决定，请重新读档核对。")
+            : tr("修改已立即应用。请在游戏内存档，保留这些改动。"),
       );
       if (
         input.action === "setNamedVariable" &&
         input.params?.scope === "persistent"
       )
-        setNotice("所有存档共用的变量已修改并保存。");
+        setNotice(tr("所有存档共用的变量已修改并保存。"));
       if (saveMode) setNotice(next.changed === false
-        ? "数值没有变化，未写入存档，也未创建新备份。"
-        : "修改已写入所选存档，修改前的存档已备份。在游戏中读取这份存档后生效。");
+        ? tr("数值没有变化，未写入存档，也未创建新备份。")
+        : tr("修改已写入所选存档，修改前的存档已备份。在游戏中读取这份存档后生效。"));
       return true;
     } catch (error) {
       if (currentProjectId.current === projectId) onError(error);
@@ -235,7 +236,7 @@ export default function Assist({
         setGoldDraft(null);
         setGoldSaveVersion(undefined);
         setEditing(null);
-        setNotice("存档已打开。选择下方数据进行修改。");
+        setNotice(tr("存档已打开。选择下方数据进行修改。"));
         setConnectionError("");
       }
     } catch (error) { onError(error); }
@@ -262,7 +263,7 @@ export default function Assist({
         ...(backup.targetAbsent ? { expectedAbsent: true } : { expectedSaveSha256: backup.currentSha256 }) });
       if (currentProjectId.current !== projectId) return;
       setState(next); setGoldDraft(null); setGoldSaveVersion(undefined); setEditing(null); setBackups(null);
-      setNotice(next.backupCreated ? "备份已恢复，恢复前文件的原始内容也已另存备份。在游戏中读取这份存档后生效。" : "备份已恢复。在游戏中读取这份存档后生效。");
+      setNotice(next.backupCreated ? tr("备份已恢复，恢复前文件的原始内容也已另存备份。在游戏中读取这份存档后生效。") : tr("备份已恢复。在游戏中读取这份存档后生效。"));
     } catch (error) { if (currentProjectId.current === projectId) onError(error); }
     finally { if (currentProjectId.current === projectId) setBusy(""); }
   }
@@ -273,7 +274,7 @@ export default function Assist({
       const next = await api.configureAssist({ projectId, enabled });
       if (currentProjectId.current !== projectId) return;
       setLiveEnabled(next.assistEnabled !== false); setState({ connected: false }); setEditing(null); setSection("data");
-      setNotice(enabled ? "实时辅助已开启。重新启动成品后连接。" : "实时辅助已关闭，下次启动也会保持关闭。已经修改的游戏进度和存档不会撤销。");
+      setNotice(enabled ? tr("实时辅助已开启。重新启动成品后连接。") : tr("实时辅助已关闭，下次启动也会保持关闭。已经修改的游戏进度和存档不会撤销。"));
     } catch (error) { if (currentProjectId.current === projectId) onError(error); }
     finally { if (currentProjectId.current === projectId) setBusy(""); }
   }
@@ -302,59 +303,59 @@ export default function Assist({
   return (
     <>
       <Heading
-        title="游玩辅助"
+        title={tr("游玩辅助")}
         description={
           saveMode
-            ? "先关闭游戏，再打开存档修改数据。每次修改前自动备份，在游戏中读档后生效。"
+            ? tr("先关闭游戏，再打开存档修改数据。每次修改前自动备份，在游戏中读档后生效。")
             : !liveEnabled
-              ? "实时辅助已关闭，成品仍可正常游玩。需要查看或修改游戏状态时，先开启实时辅助，再从这里启动成品。"
-            : "从工作台启动汉化成品，查看并修改金钱、物品和游戏状态。可用功能按游戏显示。"
+              ? tr("实时辅助已关闭，成品仍可正常游玩。需要查看或修改游戏状态时，先开启实时辅助，再从这里启动成品。")
+            : tr("从工作台启动汉化成品，查看并修改金钱、物品和游戏状态。可用功能按游戏显示。")
         }
       >
         <span className={`status ${connected ? "ready" : "paused"}`}>
           <i />
-          {saveMode ? connected ? "存档已打开" : "选择游戏存档" : !liveEnabled ? "实时辅助已关闭" : connected
-            ? "已连接游戏"
+          {saveMode ? connected ? tr("存档已打开") : tr("选择游戏存档") : !liveEnabled ? tr("实时辅助已关闭") : connected
+            ? tr("已连接游戏")
             : state.connected
-              ? "开始游戏或读档"
-              : "启动汉化成品"}
+              ? tr("开始游戏或读档")
+              : tr("启动汉化成品")}
         </span>
       </Heading>
       {nativeDesktop && canManage && modes.length > 1 && (
-        <nav className="assist-section-nav" aria-label="辅助模式">
+        <nav className="assist-section-nav" aria-label={tr("辅助模式")}>
           {modes.map((item) => <button key={item} type="button" className={mode === item ? "selected" : ""}
             disabled={Boolean(busy)}
             onClick={() => { setSelectedMode(item); setSection("data"); setEditing(null); }}>
-            {item === "save" ? "存档辅助" : "实时辅助"}
+            {item === "save" ? tr("存档辅助") : tr("实时辅助")}
           </button>)}
         </nav>
       )}
       {nativeDesktop && canManage && !saveMode && (
         <section className="panel">
-          <div className="panel-heading"><h2>实时辅助{liveEnabled ? "已开启" : "已关闭"}</h2>
-            <Button busy={busy === "configure-assist"} disabled={Boolean(busy)} onClick={() => void configureLive()}>{liveEnabled ? "关闭实时辅助" : "开启实时辅助"}</Button>
+          <div className="panel-heading"><h2>{liveEnabled ? tr("实时辅助已开启") : tr("实时辅助已关闭")}</h2>
+            <Button busy={busy === "configure-assist"} disabled={Boolean(busy)} onClick={() => void configureLive()}>{liveEnabled ? tr("关闭实时辅助") : tr("开启实时辅助")}</Button>
           </div>
-          <p className="muted">更改前请关闭由工作台启动的游戏。关闭后不再连接，也不会撤销已改的剧情或存档；RPG Maker XP / VX / VX Ace 的最新成品会恢复辅助安装前的脚本，其他引擎停止辅助会话。</p>
+          <p className="muted">{tr("更改前请关闭由工作台启动的游戏。关闭后不再连接，也不会撤销已改的剧情或存档；RPG Maker XP / VX / VX Ace 的最新成品会恢复辅助安装前的脚本，其他引擎停止辅助会话。")}</p>
           {project.assistance?.status === "install_failed" && !connected && (
             <>
-              <p className="muted">上次辅助安装未完成，已恢复原文件，普通游戏仍可游玩。先关闭游戏，再重新安装并连接。</p>
-              <Button busy={busy === "launch"} disabled={Boolean(busy) || !liveEnabled || !project.builds.length} onClick={() => void launch()}>重新安装并连接</Button>
+              <p className="muted">{tr("上次辅助安装未完成，已恢复原文件，普通游戏仍可游玩。先关闭游戏，再重新安装并连接。")}</p>
+              <Button busy={busy === "launch"} disabled={Boolean(busy) || !liveEnabled || !project.builds.length} onClick={() => void launch()}>{tr("重新安装并连接")}</Button>
             </>
           )}
         </section>
       )}
       {nativeDesktop && canManage && saveMode && (
         <section className="panel">
-          <div className="panel-heading"><h2><FileArchive size={18} /> 游戏存档</h2>
+          <div className="panel-heading"><h2><FileArchive size={18} />{tr(" 游戏存档")}</h2>
             <div className="row-actions">
-              <Button onClick={() => void openSave()} busy={busy === "open-save"} disabled={Boolean(busy)}>选择存档</Button>
-              {project.builds.length > 0 && <Button onClick={() => void launch()} busy={busy === "launch"} disabled={Boolean(busy)}>启动成品</Button>}
+              <Button onClick={() => void openSave()} busy={busy === "open-save"} disabled={Boolean(busy)}>{tr("选择存档")}</Button>
+              {project.builds.length > 0 && <Button onClick={() => void launch()} busy={busy === "launch"} disabled={Boolean(busy)}>{tr("启动成品")}</Button>}
             </div>
           </div>
-          <p className="body-copy">{state.saveFile?.path || "关闭游戏后选择存档，修改完成再启动游戏并读档。"}</p>
+          <p className="body-copy">{state.saveFile?.path || tr("关闭游戏后选择存档，修改完成再启动游戏并读档。")}</p>
           <div className="row-actions">
-            <Button busy={busy === "list-backups"} disabled={Boolean(busy)} onClick={() => void showBackups()}>恢复存档备份</Button>
-            {state.saveFile?.backupDir && <Button onClick={() => void api.openPath({ path: state.saveFile!.backupDir! }).catch(onError)}>打开备份目录</Button>}
+            <Button busy={busy === "list-backups"} disabled={Boolean(busy)} onClick={() => void showBackups()}>{tr("恢复存档备份")}</Button>
+            {state.saveFile?.backupDir && <Button onClick={() => void api.openPath({ path: state.saveFile!.backupDir! }).catch(onError)}>{tr("打开备份目录")}</Button>}
           </div>
         </section>
       )}
@@ -364,12 +365,12 @@ export default function Assist({
         </div>
       )}
       {nativeDesktop && canManage && rpgSections && liveEnabled && (
-        <nav className="assist-section-nav" aria-label="游玩辅助功能">
+        <nav className="assist-section-nav" aria-label={tr("游玩辅助功能")}>
           {(
             [
-              { id: "data", label: "角色与数据" },
-              { id: "exploration", label: "移动与探索" },
-              { id: "gallery", label: "回想与图鉴" },
+              { id: "data", label: tr("角色与数据") },
+              { id: "exploration", label: tr("移动与探索") },
+              { id: "gallery", label: tr("回想与图鉴") },
             ] as const
           ).map((item) => (
             <button
@@ -397,25 +398,25 @@ export default function Assist({
         <section className="panel">
           <div className="panel-heading">
             <h2><EngineLabel engine={project.engine} label={engine?.name} /></h2>
-            <span className="tag">可用功能</span>
+            <span className="tag">{tr("可用功能")}</span>
           </div>
           <p className="body-copy">
             {!nativeDesktop
-              ? "在桌面版中启动汉化成品后，即可连接游戏并使用辅助功能。"
-              : project.assistance?.detail || engine?.detail || "完成游戏识别后，这里会显示可用功能。"}
+              ? tr("在桌面版中启动汉化成品后，即可连接游戏并使用辅助功能。")
+              : uiMessage(project.assistance?.detail) || uiMessage(engine?.detail) || tr("完成游戏识别后，这里会显示可用功能。")}
           </p>
           <div className="capability-list">
             <div>
-              <span>文字提取</span>
-              <strong>{engine?.extract ? "可使用" : "需要适配"}</strong>
+              <span>{tr("文字提取")}</span>
+              <strong>{engine?.extract ? tr("可使用") : tr("需要适配")}</strong>
             </div>
             <div>
-              <span>制作独立汉化版</span>
-              <strong>{engine?.build ? "可使用" : "需要适配"}</strong>
+              <span>{tr("制作独立汉化版")}</span>
+              <strong>{engine?.build ? tr("可使用") : tr("需要适配")}</strong>
             </div>
             <div>
-              <span>游玩辅助</span>
-              <strong>{supported ? "桌面版可使用" : "需要适配"}</strong>
+              <span>{tr("游玩辅助")}</span>
+              <strong>{supported ? tr("桌面版可使用") : tr("需要适配")}</strong>
             </div>
           </div>
         </section>
@@ -431,24 +432,22 @@ export default function Assist({
       ) : !connected ? (
         <Empty
           title={
-            saveMode ? "选择要修改的存档" : !liveEnabled ? "实时辅助已关闭，仍可正常游玩" : state.connected ? "开始游戏或读取存档" : "启动汉化成品并进入游戏"
+            saveMode ? tr("选择要修改的存档") : !liveEnabled ? tr("实时辅助已关闭，仍可正常游玩") : state.connected ? tr("开始游戏或读取存档") : tr("启动汉化成品并进入游戏")
           }
           action={
-            saveMode ? <Button variant="primary" busy={busy === "open-save"} onClick={() => void openSave()}><FileArchive size={17} />选择游戏存档</Button> : <Button
+            saveMode ? <Button variant="primary" busy={busy === "open-save"} onClick={() => void openSave()}><FileArchive size={17} />{tr("选择游戏存档")}</Button> : <Button
               variant="primary"
               busy={busy === "launch"}
               disabled={!project.builds.length}
               onClick={() => void launch()}
             >
-              <Play size={17} />
-              启动最新成品
-            </Button>
+              <Play size={17} />{tr("启动最新成品")}</Button>
           }
         >
           {!saveMode && !liveEnabled
-            ? "当前不会连接或显示游戏状态。点击上方“开启实时辅助”后，再启动最新成品。已经修改的剧情和存档不会撤销。"
-            : state.detail || (saveMode ? "先关闭游戏，再选择存档。每次修改前会自动备份；修改后启动游戏，读取这份存档即可生效。" : "点击“启动最新成品”，再在游戏中开始新游戏或读取存档。这里会自动显示当前游戏状态。")}
-          {!saveMode && !project.builds.length && "先在“成品与导出”生成汉化版。"}
+            ? tr("当前不会连接或显示游戏状态。点击上方“开启实时辅助”后，再启动最新成品。已经修改的剧情和存档不会撤销。")
+            : uiMessage(state.detail) || (saveMode ? tr("先关闭游戏，再选择存档。每次修改前会自动备份；修改后启动游戏，读取这份存档即可生效。") : tr("点击“启动最新成品”，再在游戏中开始新游戏或读取存档。这里会自动显示当前游戏状态。"))}
+          {!saveMode && !project.builds.length && tr("先在“成品与导出”生成汉化版。")}
         </Empty>
       ) : section === "exploration" && rpgSections ? (
         <AssistExploration
@@ -463,12 +462,12 @@ export default function Assist({
           <div className="assist-session">
             <span>
               <Wifi size={16} />
-              <EngineLabel engine={state.engine || project.engine} label={engine?.name} /> · {saveMode ? "存档状态" : "实时状态"}
+              <EngineLabel engine={state.engine || project.engine} label={engine?.name} /> · {saveMode ? tr("存档状态") : tr("实时状态")}
             </span>
             <small>
-              {saveMode ? "每次修改都会写入所选存档，并备份修改前的文件。在游戏中读档后生效。" : namedData
-                ? "变量修改当前运行值。每项说明是否已知可保存；未确认的字段需在游戏中存档、读档后核对。"
-                : "修改立即生效。在游戏内存档后，即可保留改动。"}
+              {saveMode ? tr("每次修改都会写入所选存档，并备份修改前的文件。在游戏中读档后生效。") : namedData
+                ? tr("变量修改当前运行值。每项说明是否已知可保存；未确认的字段需在游戏中存档、读档后核对。")
+                : tr("修改立即生效。在游戏内存档后，即可保留改动。")}
             </small>
           </div>
           {(state.gold !== undefined ||
@@ -479,13 +478,11 @@ export default function Assist({
                 <section className="panel">
                   <div className="panel-heading">
                     <h2>
-                      <Coins size={18} />
-                      金钱
-                    </h2>
-                    <span className="tag">当前持有</span>
+                      <Coins size={18} />{tr("金钱")}</h2>
+                    <span className="tag">{tr("当前持有")}</span>
                   </div>
                   <div className="assist-money">
-                    {(state.gold ?? 0).toLocaleString()}
+                    {(state.gold ?? 0).toLocaleString(uiLocale)}
                     <span>G</span>
                   </div>
                   {actions.has("setGold") && (
@@ -511,7 +508,7 @@ export default function Assist({
                       }}
                     >
                       <input
-                        aria-label="新的游戏金钱"
+                        aria-label={tr("新的游戏金钱")}
                         type="number"
                         min={state.limits?.gold?.min ?? 0}
                         max={state.limits?.gold?.max ?? 99999999}
@@ -525,34 +522,26 @@ export default function Assist({
                         variant="primary"
                         busy={busy === "setGold"}
                         disabled={Boolean(busy)}
-                      >
-                        设置金钱
-                      </Button>
+                      >{tr("设置金钱")}</Button>
                     </form>
                   )}
-                  <p className="assist-hint muted">
-                    输入修改后的金钱总额，再点击“设置金钱”。
-                  </p>
+                  <p className="assist-hint muted">{tr("输入修改后的金钱总额，再点击“设置金钱”。")}</p>
                 </section>
               )}
               {state.actors !== undefined && (
                 <section className="panel assist-party-panel">
                   <div className="panel-heading">
                     <h2>
-                      <Heart size={18} />
-                      队伍状态{" "}
+                      <Heart size={18} />{tr("队伍状态")}{" "}
                       <span className="assist-count">
-                        {state.actors?.length ?? 0} 人
-                      </span>
+                        {state.actors?.length ?? 0}{tr(" 人")}</span>
                     </h2>
                     {actions.has("heal") && (
                       <Button
                         busy={busy === "heal"}
                         disabled={Boolean(busy)}
                         onClick={() => void command({ action: "heal" })}
-                      >
-                        恢复全队
-                      </Button>
+                      >{tr("恢复全队")}</Button>
                     )}
                   </div>
                   <div className="assist-party">
@@ -565,14 +554,14 @@ export default function Assist({
                         action: Command["action"];
                       }[] = [
                         {
-                          label: "等级",
+                          label: tr("等级"),
                           value: actor.level,
                           max: actor.maxLevel,
                           min: 1,
                           action: "setLevel",
                         },
                         {
-                          label: "经验值",
+                          label: tr("经验值"),
                           value: actor.exp,
                           min: 0,
                           action: "setExp",
@@ -596,7 +585,7 @@ export default function Assist({
                         <article className="assist-actor" key={actor.id}>
                           <header>
                             <strong>{actor.name}</strong>
-                            <small>角色 #{actor.id}</small>
+                            <small>{tr("角色 #")}{actor.id}</small>
                           </header>
                           <div className="assist-actor-values">
                             {metrics
@@ -607,17 +596,17 @@ export default function Assist({
                                   <>
                                     <span>{metric.label}</span>
                                     <strong>
-                                      {metric.value!.toLocaleString()}
+                                      {metric.value!.toLocaleString(uiLocale)}
                                       {metric.max !== undefined &&
-                                        metric.label !== "等级" && (
+                                        metric.action !== "setLevel" && (
                                           <small>
                                             {" "}
-                                            / {metric.max.toLocaleString()}
+                                            / {metric.max.toLocaleString(uiLocale)}
                                           </small>
                                         )}
                                     </strong>
                                     {actions.has(metric.action) && (
-                                      <em>修改</em>
+                                      <em>{tr("修改")}</em>
                                     )}
                                   </>
                                 );
@@ -626,7 +615,7 @@ export default function Assist({
                                     key={metric.label}
                                     type="button"
                                     disabled={Boolean(busy)}
-                                    aria-label={`修改${actor.name}的${metric.label}`}
+                                    aria-label={tr`修改${actor.name}的${metric.label}`}
                                     onClick={() =>
                                       setEditing({
                                         id: actor.id,
@@ -654,14 +643,10 @@ export default function Assist({
                     })}
                   </div>
                   {!state.actors?.length && (
-                    <p className="muted assist-hint">
-                      当前队伍为空，角色加入后显示状态。
-                    </p>
+                    <p className="muted assist-hint">{tr("当前队伍为空，角色加入后显示状态。")}</p>
                   )}
                   {actorEditing && (
-                    <p className="assist-hint muted">
-                      点击角色数值可调整。
-                      {actions.has("heal") && `恢复全队会补满 HP、${mpLabel} 并解除异常状态。`}
+                    <p className="assist-hint muted">{tr("点击角色数值可调整。")}{actions.has("heal") && tr`恢复全队会补满 HP、${mpLabel} 并解除异常状态。`}
                     </p>
                   )}
                 </section>
@@ -672,7 +657,7 @@ export default function Assist({
             <div
               className="assist-tabs"
               role="tablist"
-              aria-label="游戏数据类型"
+              aria-label={tr("游戏数据类型")}
             >
               {visibleTabs.map(({ id, title, Icon }, index) => (
                 <button
@@ -688,21 +673,21 @@ export default function Assist({
                   className={activeTab === id ? "selected" : ""}
                 >
                   <Icon size={16} />
-                  {id === "variables" && namedData ? "游戏变量" : title}
-                  <span>{assistRows(state, id).length.toLocaleString()}</span>
+                  {id === "variables" && namedData ? tr("游戏变量") : title}
+                  <span>{assistRows(state, id).length.toLocaleString(uiLocale)}</span>
                 </button>
               ))}
             </div>
             <label className="search-field assist-search">
               <Search size={17} />
               <input
-                aria-label="搜索游戏数据"
+                aria-label={tr("搜索游戏数据")}
                 placeholder={
                   activeTab === "items"
-                    ? "搜索名称、编号、物品 / 武器 / 防具"
+                    ? tr("搜索名称、编号、物品 / 武器 / 防具")
                     : namedData
-                      ? "搜索变量名、当前游戏或所有存档共用"
-                      : "搜索名称或编号"
+                      ? tr("搜索变量名、当前游戏或所有存档共用")
+                      : tr("搜索名称或编号")
                 }
                 value={search}
                 onChange={(event) => {
@@ -719,9 +704,9 @@ export default function Assist({
               tabIndex={0}
             >
               <div className="assist-data-header">
-                <span>{namedData ? "适用范围 / 变量名" : "编号 / 名称"}</span>
-                <span>{activeTab === "items" ? "持有数量" : "当前值"}</span>
-                <span>操作</span>
+                <span>{namedData ? tr("适用范围 / 变量名") : tr("编号 / 名称")}</span>
+                <span>{activeTab === "items" ? tr("持有数量") : tr("当前值")}</span>
+                <span>{tr("操作")}</span>
               </div>
               {rows.rows.map((item) => (
                 <div
@@ -736,9 +721,9 @@ export default function Assist({
                     <small>
                       {item.id !== undefined && `#${item.id} · `}
                       {item.category}
-                      {item.params?.name && rows.rows.some((other) => other !== item && other.name === item.name) && ` · 标识 ${item.params.name.split(":")[0].slice(0, 16)}`}
+                      {item.params?.name && rows.rows.some((other) => other !== item && other.name === item.name) && tr` · 标识 ${item.params.name.split(":")[0].slice(0, 16)}`}
                     </small>
-                    <strong title={item.params?.name}>{item.name || `未命名${item.category}`}</strong>
+                    <strong title={item.params?.name}>{item.name || tr`未命名${item.category}`}</strong>
                   </div>
                   <span
                     className={
@@ -751,20 +736,20 @@ export default function Assist({
                   >
                     {typeof item.value === "boolean"
                       ? item.value
-                        ? "开启"
-                        : "关闭"
+                        ? trc("switch", "开启")
+                        : trc("switch", "关闭")
                       : item.value === ""
-                        ? "（空文字）"
+                        ? tr("（空文字）")
                         : String(item.value)}
                   </span>
                   {actions.has(item.action) ? (
                     <Button
                       disabled={Boolean(busy)}
-                      aria-label={`修改${item.category} ${item.id !== undefined ? `#${item.id} ` : ""}${item.name}`}
+                      aria-label={tr`修改${item.category} ${item.id !== undefined ? `#${item.id} ` : ""}${item.name}`}
                       onClick={() =>
                         setEditing({
                           ...item,
-                          label: activeTab === "items" ? "持有数量" : "修改后的值",
+                          label: activeTab === "items" ? tr("持有数量") : tr("修改后的值"),
                           min: item.min ?? (activeTab === "items" ? 0 : undefined),
                           max: item.max ?? (activeTab === "items" ? 99999999 : undefined),
                           integer: item.integer ?? activeTab === "items",
@@ -773,55 +758,48 @@ export default function Assist({
                           params: { ...item.params, gameSessionId: state.gameSessionId },
                         })
                       }
-                    >
-                      修改
-                    </Button>
+                    >{tr("修改")}</Button>
                   ) : (
-                    <span className="muted">仅供查看</span>
+                    <span className="muted">{tr("仅供查看")}</span>
                   )}
                 </div>
               ))}
               {rows.total === 0 && (
                 <p className="muted spaced">
                   {search
-                    ? "匹配 0 条。更换名称或编号后重新搜索。"
+                    ? tr("匹配 0 条。更换名称或编号后重新搜索。")
                     : saveMode
-                      ? "所选存档中，这类数据共 0 条。可选择其他存档查看。"
-                      : "当前读取到 0 条数据。继续游玩后，这里会自动更新。"}
+                      ? tr("所选存档中，这类数据共 0 条。可选择其他存档查看。")
+                      : tr("当前读取到 0 条数据。继续游玩后，这里会自动更新。")}
                 </p>
               )}
             </div>
-            <div className="assist-pagination" aria-label="游戏数据分页">
+            <div className="assist-pagination" aria-label={tr("游戏数据分页")}>
               <span aria-live="polite">
-                {rows.start}–{rows.end} / {rows.total.toLocaleString()} 条
-              </span>
+                {rows.start}–{rows.end} / {rows.total.toLocaleString(uiLocale)}{tr(" 条")}</span>
               <div>
                 <Button
-                  aria-label="上一页游戏数据"
+                  aria-label={tr("上一页游戏数据")}
                   disabled={rows.page === 0}
                   onClick={() => setPage(rows.page - 1)}
                 >
-                  <ChevronLeft size={15} />
-                  上一页
-                </Button>
+                  <ChevronLeft size={15} />{tr("上一页")}</Button>
                 <span>
                   {rows.page + 1} / {rows.pages}
                 </span>
                 <Button
-                  aria-label="下一页游戏数据"
+                  aria-label={tr("下一页游戏数据")}
                   disabled={rows.page + 1 >= rows.pages}
                   onClick={() => setPage(rows.page + 1)}
-                >
-                  下一页
-                  <ChevronRight size={15} />
+                >{tr("下一页")}<ChevronRight size={15} />
                 </Button>
               </div>
             </div>
             <p className="muted assist-hint">
-              {state.truncated && `当前列表只包含部分字段：${state.limitReason || "已达到本轮扫描上限"}。搜索仅覆盖已读取的字段。`}
+              {state.truncated && tr`当前列表只包含部分字段：${uiMessage(state.limitReason) || tr("已达到本轮扫描上限")}。搜索仅覆盖已读取的字段。`}
               {namedData
-                ? "按列表中的变量名称查找。每项会标明适用于当前游戏，还是所有存档共用。"
-                : "按真实编号或作者设置的名称查找，无名称也可修改。不需要 AI 确认。开关和变量可能控制剧情、回想或计数，含义由游戏决定；建议先在游戏内另存一份存档，再逐项尝试。"}
+                ? tr("按列表中的变量名称查找。每项会标明适用于当前游戏，还是所有存档共用。")
+                : tr("按真实编号或作者设置的名称查找，无名称也可修改。不需要 AI 确认。开关和变量可能控制剧情、回想或计数，含义由游戏决定；建议先在游戏内另存一份存档，再逐项尝试。")}
             </p>
           </section>
         </>
@@ -869,7 +847,7 @@ function AssistEdit({
     try {
       const parsed = parseAssistValue(value, type, target);
       setBusy(true);
-      if (!(await onSave(parsed))) setError("请查看页面中的错误说明，处理后再次点击“确认修改”。");
+      if (!(await onSave(parsed))) setError(tr("请查看页面中的错误说明，处理后再次点击“确认修改”。"));
     } catch (failure) {
       setError(errorMessage(failure));
     } finally {
@@ -884,14 +862,13 @@ function AssistEdit({
       error={error}
     >
       <form onSubmit={(event) => void submit(event)}>
-        <p className="dialog-intro">
-          当前值：{String(target.value)}
-          {target.max !== undefined && ` · 上限 ${target.max.toLocaleString()}`}
+        <p className="dialog-intro">{tr("当前值：")}{String(target.value)}
+          {target.max !== undefined && tr` · 上限 ${target.max.toLocaleString(uiLocale)}`}
         </p>
         {target.hint && <p className="dialog-intro">{target.hint}</p>}
         {target.action === "setVariable" && !target.fixedType && (
           <label className="field">
-            <span>内容类型</span>
+            <span>{tr("内容类型")}</span>
             <select
               value={type}
               onChange={(event) => {
@@ -899,9 +876,9 @@ function AssistEdit({
                 setValue(event.target.value === "boolean" ? "false" : "");
               }}
             >
-              <option value="number">数字</option>
-              <option value="string">文字</option>
-              <option value="boolean">开启或关闭</option>
+              <option value="number">{tr("数字")}</option>
+              <option value="string">{tr("文字")}</option>
+              <option value="boolean">{tr("开启或关闭")}</option>
             </select>
           </label>
         )}
@@ -912,8 +889,8 @@ function AssistEdit({
               value={value}
               onChange={(event) => setValue(event.target.value)}
             >
-              <option value="true">开启 / true</option>
-              <option value="false">关闭 / false</option>
+              <option value="true">{tr("开启 / true")}</option>
+              <option value="false">{tr("关闭 / false")}</option>
             </select>
           ) : (
             <input
@@ -929,12 +906,8 @@ function AssistEdit({
           )}
         </label>
         <div className="dialog-actions">
-          <Button onClick={onClose} disabled={busy}>
-            取消
-          </Button>
-          <Button type="submit" variant="primary" busy={busy}>
-            确认修改
-          </Button>
+          <Button onClick={onClose} disabled={busy}>{tr("取消")}</Button>
+          <Button type="submit" variant="primary" busy={busy}>{tr("确认修改")}</Button>
         </div>
       </form>
     </Modal>

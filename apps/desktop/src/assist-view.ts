@@ -1,3 +1,4 @@
+import { tr } from "../shared/ui-language.js";
 import type {
   AssistState,
   DesktopApi,
@@ -40,15 +41,15 @@ export function assistRows(state: AssistState, tab: AssistTab): AssistRow[] {
       action: "setItem",
       category:
         item.type === "weapon"
-          ? "武器"
+          ? tr("武器")
           : item.type === "armor"
-            ? "防具"
-            : "物品",
+            ? tr("防具")
+            : tr("物品"),
     }));
   const rows: AssistRow[] = (state[tab] ?? []).map((item) => ({
     ...item,
     action: tab === "switches" ? "setSwitch" : "setVariable",
-    category: tab === "switches" ? "开关" : "变量",
+    category: tab === "switches" ? tr("开关") : tr("变量"),
   }));
   if (tab === "variables") {
     rows.push(
@@ -58,8 +59,8 @@ export function assistRows(state: AssistState, tab: AssistTab): AssistRow[] {
         action: "setNamedVariable",
         category:
           item.scope === "persistent"
-            ? `所有存档共用（全局）${item.store ? ` · ${item.store}` : ""}`
-            : `当前游戏${item.store ? ` · ${item.store}` : ""}`,
+            ? tr`所有存档共用（全局）${item.store ? ` · ${item.store}` : ""}`
+            : tr`当前游戏${item.store ? ` · ${item.store}` : ""}`,
         min: item.min,
         max: item.max,
         integer: item.integer,
@@ -71,14 +72,14 @@ export function assistRows(state: AssistState, tab: AssistTab): AssistRow[] {
         },
         hint:
           state.mode === "save"
-            ? "确认修改后写入所选存档，并备份修改前的文件。在游戏中读取这份存档后生效。"
+            ? tr("确认修改后写入所选存档，并备份修改前的文件。在游戏中读取这份存档后生效。")
             : item.persistence === "persistent" || item.scope === "persistent"
-            ? "确认修改后立即保存，所有存档共用这项数据。"
+            ? tr("确认修改后立即保存，所有存档共用这项数据。")
             : item.persistence === "game-save"
-              ? "修改立即生效。在游戏内存档后保留，读取其他存档会切换为对应的数据。"
+              ? tr("修改立即生效。在游戏内存档后保留，读取其他存档会切换为对应的数据。")
               : item.persistence === "volatile"
-                ? "只修改当前运行值，不会随存档保存。"
-                : "已改当前运行值；是否随存档保留由游戏决定，请在存档、读档后核对。",
+                ? tr("只修改当前运行值，不会随存档保存。")
+                : tr("已改当前运行值；是否随存档保留由游戏决定，请在存档、读档后核对。"),
       })),
     );
   }
@@ -119,23 +120,23 @@ export function parseAssistValue(
   if (type !== "number") return value;
   const number = Number(value);
   if (!value.trim() || !Number.isFinite(number))
-    throw new Error("请输入有效数字，例如 0 或 12.5。");
+    throw new Error(tr("请输入有效数字，例如 0 或 12.5。"));
   if (options.integer && !Number.isSafeInteger(number))
-    throw new Error("请输入整数，例如 0、1 或 2。");
+    throw new Error(tr("请输入整数，例如 0、1 或 2。"));
   if (options.min !== undefined && number < options.min)
-    throw new Error(`请输入至少为 ${options.min} 的数值。`);
+    throw new Error(tr`请输入至少为 ${options.min} 的数值。`);
   if (options.max !== undefined && number > options.max)
-    throw new Error(`请输入最多为 ${options.max} 的数值。`);
+    throw new Error(tr`请输入最多为 ${options.max} 的数值。`);
   return number;
 }
 
 export const assistMoveSpeeds = [
-  { value: 1, label: "1 · 最慢" },
-  { value: 2, label: "2 · 慢速" },
-  { value: 3, label: "3 · 缓步" },
-  { value: 4, label: "4 · 标准步行" },
-  { value: 5, label: "5 · 快速" },
-  { value: 6, label: "6 · 最快" },
+  { value: 1, label: tr("1 · 最慢") },
+  { value: 2, label: tr("2 · 慢速") },
+  { value: 3, label: tr("3 · 缓步") },
+  { value: 4, label: tr("4 · 标准步行") },
+  { value: 5, label: tr("5 · 快速") },
+  { value: 6, label: tr("6 · 最快") },
 ];
 
 export function assistDestination(
@@ -168,8 +169,8 @@ export function selectedRecollectionRecipes(
 
 export function recollectionScope(recipe: Pick<RecollectionRecipe, "kind">) {
   return recipe.kind === "plugin-display"
-    ? "本次游玩 · 回想显示状态"
-    : "当前存档 · 剧情开关与进度";
+    ? tr("本次游玩 · 回想显示状态")
+    : tr("当前存档 · 剧情开关与进度");
 }
 
 export function canRestoreRecollection(

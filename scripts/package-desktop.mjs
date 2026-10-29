@@ -15,6 +15,7 @@ import { readFormatKernelIdentity } from '../packages/technical/adaptation/forma
 import { copyDshRuntimeForRelease } from './dsh-release-policy.mjs';
 import { desktopBundleBuilds } from './desktop-bundle-policy.mjs';
 import { cleanupDesktopStage } from './desktop-stage-lifecycle.mjs';
+import { uiLanguage } from '../apps/desktop/shared/ui-language.js';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
 const version = JSON.parse(await readFile(path.join(root, 'package.json'), 'utf8')).version;
@@ -26,12 +27,14 @@ const stage = path.join(root, 'local', 'desktop-stage', stamp);
 const output = path.join(root, 'local', 'releases', `${version}-${stamp}`);
 const run = promisify(execFile);
 const sourceFiles = await collectPublicSourceFiles(root);
+const builtLanguage = JSON.parse(await readFile(path.join(root, 'apps/desktop/dist/ui-language.json'), 'utf8')).language;
+if (builtLanguage !== uiLanguage) throw new Error('UI language mismatch. Set PINHAO_UI_LANGUAGE and rebuild the desktop before packaging.');
 await validateManagedTools(root);
 await import('./prepare-icon.mjs');
 await access(path.join(root, 'local', 'runtime', 'python', 'python.exe'));
 await mkdir(path.dirname(stage), { recursive: true });
 await mkdir(stage);
-const define = { __PINHAO_FORMAT_KERNEL__: JSON.stringify(await readFormatKernelIdentity()) };
+const define = { __PINHAO_FORMAT_KERNEL__: JSON.stringify(await readFormatKernelIdentity()), __PINHAO_UI_LANGUAGE__: JSON.stringify(uiLanguage) };
 const bundleReports = [];
 await mkdir(path.join(output, 'build-metadata'), { recursive: true });
 for (const entry of desktopBundleBuilds({ root, stage, define, args: process.argv.slice(2) })) {
@@ -120,7 +123,26 @@ for (const location of Object.keys(packages)) {
     try { await cp(path.join(directory, entry), path.join(licenses, dest), { recursive: true }); } catch { /* Package metadata can contain non-file license links. */ }
   }
 }
-await writeFile(path.join(stage, 'package.json'), JSON.stringify({ name: 'pinhao-workbench', productName: '拼好汉化工作台', version, type: 'module', main: 'main.mjs', license: 'GPL-3.0-or-later', author: '拼好汉化' }, null, 2));
+await writeFile(path.join(stage, 'package.json'), JSON.stringify({ name: 'pinhao-workbench', productName: uiLanguage === 'en' ? 'Pinhao Workbench' : '拼好汉化工作台', version, uiLanguage, type: 'module', main: 'main.mjs', license: 'GPL-3.0-or-later', author: 'Pinhao' }, null, 2));
+if (uiLanguage === 'en') {
+  await writeFile(path.join(stage, 'README-English.txt'), [
+    `Pinhao ${version} - English UI Public Beta`, '',
+    'Extract the entire archive to a writable folder, then launch PinhaoWorkbench.exe.',
+    'In Settings, enter your own API endpoint, model and key. Technical and text connections can be separate; translation and proofreading share the text connection.',
+    'New English-edition settings default to English (en) as the translation target. You can choose another language in Settings; existing saved choices are preserved.',
+    'Import a game, try a short scene, then check the finished game before processing or sharing a full project.', '',
+    'Settings and the project index live in data beside the portable application. Projects and localized builds default to folders beside the game.',
+    'Keep your original game and saves. Preserve data and existing project folders when updating.',
+    'Do not share your data directory, API settings, private projects, games, translations or saves with the application.', '',
+    'The English UI covers application controls, status and common errors. Game text, user names, font glyph samples, model responses and raw technical evidence retain their original language.',
+    'Technical scripts require project permission and run with your Windows user permissions, including file and network access. API keys remain with the host.',
+    'This is a beta, not an all-engine compatibility or complete playtesting guarantee.',
+    'The original 0.5.8 GitHub test run has four unresolved failures. See the release notes for the exact status; localization is not a claim that those test failures were fixed.', '',
+    'Official downloads are free. Model providers may charge for requests. Do not pay to buy the official application package.',
+    'Source code: SOURCE-CODE.zip. Application license: LICENSE.txt. Dependency notices: resources/app/THIRD_PARTY_LICENSES.',
+    'Documentation and feedback: https://github.com/BlandaLin/pinhao', '',
+  ].join('\r\n'));
+}
 await writeFile(path.join(stage, '使用说明.txt'), [
   `拼好汉化 ${version} · Windows x64 公测版`, '',
   '双击 PinhaoWorkbench.exe 启动。保留整个发行目录。',
@@ -196,7 +218,8 @@ await writeFile(path.join(stage, '测试说明.txt'), [
   '请保留原版、存档和已有工程，先用副本或小项目尝试；遇到异常先暂停并保留成果，不要反复从零制作。', '',
   '官方软件免费提供，技术与源码随包开放。', '',
 ].join('\r\n'));
-const paths = await packager({ dir: stage, out: output, tmpdir: path.join(root, 'local/packager-temp'), name: 'PinhaoWorkbench', platform: 'win32', arch: 'x64', electronVersion: '44.8.0', electronZipDir: path.join(root, 'local/runtime'), appVersion: version, appCopyright: '拼好汉化', icon: path.join(root, 'apps/desktop/public/pinhao-app-icon.ico'), asar: false, overwrite: false, prune: false, executableName: 'PinhaoWorkbench', win32metadata: { ProductName: '拼好汉化', FileDescription: '拼好汉化' } });
+const productName = uiLanguage === 'en' ? 'Pinhao' : '拼好汉化';
+const paths = await packager({ dir: stage, out: output, tmpdir: path.join(root, 'local/packager-temp'), name: 'PinhaoWorkbench', platform: 'win32', arch: 'x64', electronVersion: '44.8.0', electronZipDir: path.join(root, 'local/runtime'), appVersion: version, appCopyright: 'Pinhao', icon: path.join(root, 'apps/desktop/public/pinhao-app-icon.ico'), asar: false, overwrite: false, prune: false, executableName: 'PinhaoWorkbench', win32metadata: { ProductName: productName, FileDescription: productName } });
 if (paths.length !== 1) throw new Error('请将上一轮发行目录移到备份位置，再执行打包');
 const archives = [];
 const sizeReports = [];
@@ -207,9 +230,13 @@ for (const directory of paths) {
   await cp(path.join(stage, '使用说明.txt'), path.join(directory, '使用说明.txt'));
   await cp(path.join(stage, '测试说明.txt'), path.join(directory, '测试说明.txt'));
   await cp(path.join(stage, 'LICENSE'), path.join(directory, '拼好汉化-LICENSE.txt'));
+  if (uiLanguage === 'en') {
+    await cp(path.join(stage, 'README-English.txt'), path.join(directory, 'README-English.txt'));
+    await cp(path.join(stage, 'LICENSE'), path.join(directory, 'LICENSE.txt'));
+  }
   await rename(path.join(directory, 'resources/app/SOURCE-CODE.zip'), path.join(directory, 'SOURCE-CODE.zip'));
   if (!directoryOnly) {
-    archive = path.join(output, `拼好汉化-${version}-Windows-x64.zip`);
+    archive = path.join(output, uiLanguage === 'en' ? `pinhao-${version}-en-Windows-x64.zip` : `拼好汉化-${version}-Windows-x64.zip`);
     const zipped = await run(path.join(root, 'local/runtime/python/python.exe'), ['-B', path.join(root, 'scripts/portable-release.py'), directory, archive], { windowsHide: true, encoding: 'utf8', env: { ...process.env, PYTHONIOENCODING: 'utf-8' } });
     archives.push(JSON.parse(zipped.stdout));
   }
@@ -221,4 +248,4 @@ for (const directory of paths) {
 }
 const stageRetained = directoryOnly || process.argv.includes('--keep-stage');
 if (!stageRetained) await cleanupDesktopStage({ stageRoot: path.dirname(stage), stage, createdByThisRun: true });
-console.log(JSON.stringify({ version, packaged: paths, archives, sizeReports, directoryOnly, acceptanceBundle: process.argv.includes('--acceptance-bundle'), stage, stageRetained, localePruning, bundleReports }));
+console.log(JSON.stringify({ version, uiLanguage, packaged: paths, archives, sizeReports, directoryOnly, acceptanceBundle: process.argv.includes('--acceptance-bundle'), stage, stageRetained, localePruning, bundleReports }));

@@ -3,15 +3,16 @@ import { writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import sharp from 'sharp';
 import { Menu } from 'electron';
+import { tr, uiLanguage } from '../shared/ui-language.js';
 
 async function verifyWelcome(window, dataDir) {
   const verified = await window.webContents.executeJavaScript(`(async () => {
     for (var attempt = 0; attempt < 100 && document.querySelector('main .loading-state'); attempt++) await new Promise(resolve => setTimeout(resolve, 50));
-    var help = document.querySelector('[aria-label="使用教程"]');
+    var help = document.querySelector('[aria-label=' + JSON.stringify(${JSON.stringify(tr('使用教程'))}) + ']');
     if (!document.querySelector('dialog[open]')) help.click();
     await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
     var dialog = document.querySelector('dialog[open]');
-    return Boolean(dialog && document.getElementById(dialog.getAttribute('aria-labelledby'))?.textContent === '欢迎使用拼好汉化' && dialog.querySelectorAll('.welcome-steps li').length === 4);
+    return Boolean(dialog && document.getElementById(dialog.getAttribute('aria-labelledby'))?.textContent === ${JSON.stringify(tr('欢迎使用拼好汉化'))} && dialog.querySelectorAll('.welcome-steps li').length === 4);
   })()`);
   if (!verified) throw new Error('使用教程检查失败');
   await writeFile(path.join(dataDir, 'welcome-guide.png'), (await window.webContents.capturePage()).toPNG());
@@ -20,7 +21,7 @@ async function verifyWelcome(window, dataDir) {
   await new Promise(resolve => setTimeout(resolve, 150));
   await writeFile(path.join(dataDir, 'welcome-guide-compact.png'), (await window.webContents.capturePage()).toPNG());
   window.setSize(width, height);
-  await window.webContents.executeJavaScript(`document.querySelector('dialog[open] [aria-label="关闭对话框"]').click()`);
+  await window.webContents.executeJavaScript(`document.querySelector('dialog[open] [aria-label=' + JSON.stringify(${JSON.stringify(tr('关闭对话框'))}) + ']').click()`);
   await new Promise(resolve => setTimeout(resolve, 50));
   return verified;
 }
@@ -75,7 +76,7 @@ async function verifyGameDrop(window, filePath) {
 
 async function verifyFontChoices(window, dataDir) {
   const result = await window.webContents.executeJavaScript(`(async () => {
-    document.querySelector('[aria-label="设置"]').click();
+    document.querySelector('[aria-label=' + JSON.stringify(${JSON.stringify(tr('设置'))}) + ']').click();
     for (var attempt = 0; attempt < 100 && document.querySelectorAll('.font-choice').length !== 3; attempt++) await new Promise(resolve => setTimeout(resolve, 50));
     var fonts = (await window.pinhao.snapshot()).fonts;
     var loaded = await Promise.all(fonts.map(async font => {
@@ -108,13 +109,18 @@ export async function runDesktopSmoke({ service, window, windowIcon, secrets, da
       image.onerror = () => resolve(false);
       image.src = favicon.href;
     });
-    return { connected: true, projects: value.projects.length, logoLoaded: Boolean(logo && logo.naturalWidth > 0), faviconLoaded };
+    return { connected: true, projects: value.projects.length, targetLanguage: value.settings.targetLanguage, logoLoaded: Boolean(logo && logo.naturalWidth > 0), faviconLoaded,
+      language: document.documentElement.lang, title: document.title, visibleText: document.body.innerText };
   })()`);
   const shellVerified = { menuGone: Menu.getApplicationMenu() === null, windowIconLoaded: Boolean(windowIcon && !windowIcon.isEmpty()), editShortcuts: await verifyEditKeys(window) };
   const encrypted = await secrets.encrypt('neutral-test-key');
   const cryptoVerified = await secrets.decrypt(encrypted) === 'neutral-test-key';
   const bitmap = await sharp({ create: { width: 2, height: 2, channels: 4, background: '#a72e2e' } }).png().toBuffer();
   const imageVerified = (await sharp(bitmap).metadata()).width === 2;
+  if (uiLanguage === 'en' && (renderer.language !== 'en-US' || renderer.title !== 'Pinhao' || /[\u3400-\u9fff]/u.test(renderer.visibleText)))
+    throw new Error('English welcome/workspace contains untranslated application text');
+  if (process.env.PINHAO_SMOKE_EXPECT_TARGET_LANGUAGE && renderer.targetLanguage !== process.env.PINHAO_SMOKE_EXPECT_TARGET_LANGUAGE)
+    throw new Error('Packaged default translation target does not match the expected language');
   const dropVerified = process.env.PINHAO_SMOKE_IMPORT_PATH
     ? await verifyGameDrop(window, path.resolve(process.env.PINHAO_SMOKE_IMPORT_PATH)) : undefined;
   const fontsVerified = process.env.PINHAO_SMOKE_FONTS === '1' ? await verifyFontChoices(window, dataDir) : undefined;

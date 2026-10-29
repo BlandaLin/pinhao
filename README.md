@@ -13,7 +13,8 @@
 <p align="center">中文 · <a href="README.en.md">English</a></p>
 
 <p align="center">
-  <a href="https://github.com/BlandaLin/pinhao/releases/tag/v0.5.8"><strong>下载 0.5.8 Windows 便携版</strong></a> ·
+  <a href="https://github.com/BlandaLin/pinhao/releases/tag/v0.5.8"><strong>下载 0.5.8 中文便携版</strong></a> ·
+  <a href="https://github.com/BlandaLin/pinhao/releases/tag/v0.5.8-en.1">English UI beta</a> ·
   <a href="#开始你的第一个项目">开始使用</a> ·
   <a href="#适合哪些游戏">适用范围</a> ·
   <a href="#当前状态与已知问题">当前已知问题</a>
@@ -69,7 +70,7 @@
 
 **文件在哪里？** 设置和索引在程序旁的 `data`；工程默认在原游戏旁的“游戏名-拼好工程”，成品默认在旁边的“游戏名-汉化版”。资源按工具需要准备，详见[工程与磁盘存储](docs/product/PROJECT_STORAGE.md)。
 
-**当前下载包的界面为中文。** 中英文主页已提供，英文界面公测版计划后续制作，尚无单独的英文版下载。本地模型需要提供兼容接口，接入示例见[本地模型说明](docs/product/LOCAL_MODELS.md)。
+**中文与英文界面分包提供。** 上述 `v0.5.8` 中文包继续保留；英文界面请下载 [`pinhao-0.5.8-en-Windows-x64.zip`](https://github.com/BlandaLin/pinhao/releases/download/v0.5.8-en.1/pinhao-0.5.8-en-Windows-x64.zip)，对应独立标签 `v0.5.8-en.1`。英文包首次创建配置时，游戏翻译目标默认为英语，可在设置中改为其他语言；不会覆盖已有选择或工程目标，也不会自动改写游戏原文与既有译文。英文版验证范围与已知限制见[英文界面发布说明](docs/release-notes/v0.5.8-en.1.md)。本地模型需要提供兼容接口，接入示例见[本地模型说明](docs/product/LOCAL_MODELS.md)。
 
 **官方软件免费，切勿付费购买官方包。** 模型服务可能收费，技术调查、翻译和校对请求都可能计入服务商账单。
 
@@ -80,6 +81,8 @@
 源码检查、模型任务结果和游戏内实际效果是不同的证据。请保留原版与存档，从短场景开始验证；未知插件、加密资源、图片文字和字体布局可能需要继续处理。
 
 完整状态、版本边界与下载说明集中在 [0.5.8 发布说明](docs/release-notes/v0.5.8.md#known-issues)。
+
+英文界面版 `v0.5.8-en.1` 已通过本轮定向检查、分开运行的界面测试与隔离程序启动检查；没有修复或撤销上述旧版 4 项失败，也不代表所有引擎或真实游戏验收通过。具体结果见[英文界面发布说明](docs/release-notes/v0.5.8-en.1.md#verification)。
 
 **欢迎用一段实际场景帮助改进。** 在 [Issues](https://github.com/BlandaLin/pinhao/issues) 告诉我们软件版本、引擎、操作步骤、预期与实际结果，以及卡住的阶段或漏字位置。附脱敏截图即可，不必公开上传完整游戏、个人工程、API 配置或私人存档。[反馈与贡献指南](docs/CONTRIBUTING.md)。
 
@@ -168,6 +171,16 @@ npm run test:engines
 npm run test:ui
 npm run package
 ```
+
+制作英文界面时，在同一个 PowerShell 会话中设置语言后再构建和打包，确保界面与桌面程序使用同一语言：
+
+```powershell
+$env:PINHAO_UI_LANGUAGE = "en"
+npm run build
+npm run package
+```
+
+英文构建也会让全新配置的翻译目标默认为英语；默认中文构建仍为简体中文。已有手选语言和工程目标不覆盖，模型通信协议与引擎数据值不因此改变。恢复默认中文构建前，使用 `Remove-Item Env:PINHAO_UI_LANGUAGE -ErrorAction SilentlyContinue` 清除该环境变量。
 
 `test:engines` 需要可用的 Python；发行目录生成在 `local/releases/<版本>/PinhaoWorkbench-win32-x64/`。组件测试使用中性样例或本地模拟端点，不代替真实模型、实际游戏与干净机器验收。当前 CI 状态见上方已知问题。
 

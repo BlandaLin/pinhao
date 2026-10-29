@@ -94,3 +94,23 @@ test('real service worker opens an isolated store and persists settings through 
   await service.close();
   service = undefined;
 });
+
+test('the real worker receives the build target and preserves a language chosen before reopening', async t => {
+  const parent = path.resolve('local/service-client-tests');
+  await mkdir(parent, { recursive: true });
+  const dataDir = await mkdtemp(path.join(parent, 'target-'));
+  const workerOptions = { pythonPath: path.join(dataDir, 'missing-codec'), workerPath: path.join(dataDir, 'missing-worker.py') };
+  let service;
+  t.after(async () => {
+    await service?.close();
+    await rm(dataDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
+  });
+  service = await createServiceClient({ dataDir, workerOptions, defaultTargetLanguage: 'en' });
+  const settings = (await service.snapshot()).settings;
+  assert.equal(settings.targetLanguage, 'en');
+  assert.equal((await service.saveSettings({ ...settings, targetLanguage: '' })).targetLanguage, 'en');
+  await service.saveSettings({ ...settings, targetLanguage: 'zh-Hans' });
+  await service.close();
+  service = await createServiceClient({ dataDir, workerOptions, defaultTargetLanguage: 'en' });
+  assert.equal((await service.snapshot()).settings.targetLanguage, 'zh-Hans');
+});

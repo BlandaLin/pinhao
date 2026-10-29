@@ -5,9 +5,9 @@ const restoreError = value => Object.assign(new Error(value.message), value);
 const stoppedError = () => Object.assign(new Error('后台工作进程已结束，请重新打开工作台。项目与已保存成果继续保留。'), { code: 'SERVICE_WORKER_STOPPED' });
 
 /** Keep domain work off the window thread; only platform credential operations return here. */
-export async function createServiceClient({ dataDir, workerOptions, defaultFontPath, secrets, onChanged = () => {},
+export async function createServiceClient({ dataDir, workerOptions, defaultFontPath, defaultTargetLanguage, secrets, onChanged = () => {},
   workerUrl = new URL('./service-worker.mjs', import.meta.url) }) {
-  const worker = new Worker(workerUrl, { workerData: { dataDir, workerOptions, defaultFontPath } });
+  const worker = new Worker(workerUrl, { workerData: { dataDir, workerOptions, defaultFontPath, defaultTargetLanguage } });
   const pending = new Map(), methods = new Map();
   let nextId = 0, closing = false, closePromise, failure;
   let readyResolve, readyReject, exitResolve;
