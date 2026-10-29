@@ -21,7 +21,7 @@
 
 ![拼好汉化 0.5.8 中文界面：灯塔来信示例工程的制作总览](.github/media/overview.jpg)
 
-<p align="center"><sub>当前源码构建界面，使用自写示例工程与预先填写的译文。</sub></p>
+<p align="center"><sub>0.5.8 示例界面，使用自写工程与预先填写的译文。</sub></p>
 
 ## 从一款游戏开始
 
@@ -47,7 +47,7 @@
 
 设置和项目索引保存在程序旁的 `data` 文件夹；工程与成品默认放在原游戏旁边。更新程序时保留 `data` 和工程目录。[文件存储说明](docs/product/PROJECT_STORAGE.md)
 
-**官方软件免费，请勿付费购买官方包。模型请求的费用由所选服务商收取。** 也可连接兼容 API 的[本地模型](docs/product/LOCAL_MODELS.md)。
+**官方软件免费，请勿付费购买官方包。模型 API 费用按服务商定价计算。** 也可连接兼容 API 的[本地模型](docs/product/LOCAL_MODELS.md)。
 
 ## 引擎与格式
 
@@ -135,7 +135,7 @@ npm run test:ui
 npm run package
 ```
 
-首次准备会下载固定版本的工具与字体。编译托管桥需要 Windows .NET Framework 3.5；便携包已包含编译结果。完整环境说明见[桌面开发文档](apps/desktop/README.md)。自动检查的已知失败及测试记录见[发布说明](docs/release-notes/v0.5.8.md#known-issues)。
+首次准备会下载固定版本的工具与字体。编译托管桥需要 Windows .NET Framework 3.5；便携包已包含编译结果。完整环境说明见[桌面开发文档](apps/desktop/README.md)，自动检查结果见 [GitHub Actions](https://github.com/BlandaLin/pinhao/actions/workflows/check.yml)。
 
 </details>
 

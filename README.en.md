@@ -21,7 +21,7 @@
 
 ![Pinhao 0.5.8 English interface: project overview for The Lighthouse Letter](.github/media/overview-en.jpg)
 
-<p align="center"><sub>Current source build, with an original sample project and prefilled translations.</sub></p>
+<p align="center"><sub>0.5.8 interface with an original sample project and prefilled translations.</sub></p>
 
 ## From One Game to a Workbench
 
@@ -47,7 +47,7 @@ While localizing games, I ran into text that existing tools could not extract. T
 
 Settings and the project index live in `data` beside the app. Projects and localized copies default to folders beside the original game. Keep `data` and your project folders when updating. [Project storage](docs/product/PROJECT_STORAGE.md)
 
-**Official builds are free. Do not pay to buy the official package. Your model provider charges for API requests.** You can also connect a compatible [local model server](docs/product/LOCAL_MODELS.md).
+**Official builds are free. Do not pay to buy the official package. API costs follow your model provider's pricing.** You can also connect a compatible [local model server](docs/product/LOCAL_MODELS.md).
 
 ## Engines and Formats
 
@@ -136,7 +136,7 @@ npm run test:ui
 npm run package
 ```
 
-First setup downloads pinned tools and fonts. Compiling the managed bridge requires Windows .NET Framework 3.5; portable builds include compiled binaries. See the [desktop development guide](apps/desktop/README.md) for prerequisites and the [release notes](docs/release-notes/v0.5.8.md#known-issues) for recorded test failures.
+First setup downloads pinned tools and fonts. Compiling the managed bridge requires Windows .NET Framework 3.5; portable builds include compiled binaries. See the [desktop development guide](apps/desktop/README.md) for prerequisites and [GitHub Actions](https://github.com/BlandaLin/pinhao/actions/workflows/check.yml) for automated checks.
 
 </details>
 

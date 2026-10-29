@@ -168,7 +168,7 @@ for (const failureMode of ['throw', 'return']) test(`host storage errors (${fail
   const paused = await waitFor(f.service, created.id, project => project.status === 'paused');
   const diagnostic = () => JSON.stringify({ failureMode, starts: [...starts], generated: [...generated], outcomes: f.calls.adaptations, paused: { total: paused.total, adaptation: paused.adaptation } });
   assert.equal(paused.stage, '工作文件或磁盘需要处理');
-  assert.match(paused.lastError, /文件被占用.*已保存的成果/);
+  assert.match(paused.lastError, /无法写入工作文件.*文件占用.*工作磁盘空间.*写入权限/);
   assert.equal(paused.adaptation.continuationNeeded, false);
   assert.equal(paused.adaptation.blocked, false);
   assert.equal(paused.adaptation.retryable, true);
