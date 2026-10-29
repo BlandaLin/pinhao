@@ -188,7 +188,7 @@ export async function runOnboardingChecks() {
       await until(() => document.querySelector(".overview-hero"));
       assert(reconnectCalls.length === 1 && reconnectCalls[0] === selectedWorkspaceDir, "The selected existing project was not reconnected");
       assert(starts === 0 && availableStarts === 0 && testedRoles.length === 0, "Opening an existing project must not start model work");
-      assert(document.body.textContent?.includes("已有译文和进度已保留"), "Reopening must explain preserved work and explicit continuation");
+      assert(document.body.textContent?.includes("工程已打开") && document.body.textContent?.includes("点击“继续制作”后调用模型"), "Reopening must explain explicit continuation without starting paid work");
     }],
     ["cancelling existing project selection has no effect and failed opening reports the reason", async () => {
       localStorage.setItem(welcomeKey, "seen");
@@ -213,7 +213,7 @@ export async function runOnboardingChecks() {
       assert(section, "The project execution control is missing"); section.open = true;
       button("允许本项目运行技术脚本").click();
       await until(guide);
-      assert(guide()?.textContent?.includes("当前 Windows 用户权限") && guide()?.textContent?.includes("文件及网络"), "The permission dialog must describe actual user-level access");
+      assert(guide()?.textContent?.includes("当前 Windows 用户的文件与网络权限"), "The permission dialog must describe actual user-level access");
       assert(guide()?.textContent?.includes("API 密钥"), "The permission dialog must describe secret handling");
       button("继续使用内置工具").click(); await until(() => !guide());
       assert(executionChanges.length === 0, "Declining must leave the project ungranted");
@@ -236,7 +236,7 @@ export async function runOnboardingChecks() {
       const status = document.querySelector(".overview-hero .status-progress");
       assert(status?.textContent?.includes("译名与疑点复核"), "Only targeted remaining review work should be named here");
       assert(status.textContent.includes("已审阅 4 / 8 条") && status.textContent.includes("50.0%"), "Consistency must use its own unique text scope, not forty round targets or three tasks");
-      assert(status.textContent.includes("统一更新") && status.textContent.includes("本阶段跳过 1 条"), "Saved candidates and skipped text must be explicit");
+      assert(status.textContent.includes("收尾后更新译文") && status.textContent.includes("本阶段跳过 1 条"), "Saved candidates and skipped text must be explicit");
     }],
     ["bursty task updates refresh the completed state with bounded workspace reads", async () => {
       localStorage.setItem(welcomeKey, "seen");
@@ -310,7 +310,7 @@ export async function runOnboardingChecks() {
       assert(document.querySelectorAll('[role="progressbar"]').length === 1, "The overview must not repeat the same bar below the fold");
       assert(document.querySelector(".status-progress-line")?.textContent?.includes("已审阅 4 / 10 条"), "Review progress must count saved text, not initial translation");
       assert(document.querySelector(".status-progress-meta")?.textContent?.includes("场景校对"), "Full text coverage must retain the unfinished review phase");
-      assert(document.querySelector(".status-progress-note")?.textContent?.includes("初翻已完成"), "Initial translation should remain secondary information");
+      assert(document.querySelector(".status-progress-note")?.textContent?.includes("收尾后更新译文"), "Scene review must explain that formal translations update after final checks");
       assert(button("暂停制作"), "Running project should retain its pause action");
     }],
     ["review pause and resume retain saved progress while commit stays a separate stage", async () => {
@@ -426,8 +426,8 @@ export async function runOnboardingChecks() {
       const coverage = document.querySelector('[aria-label="文字提取与文件检查"]')?.textContent ?? "";
       assert(coverage.includes("待检查文字的文件 0 个"), "Native objects must not inflate text-candidate file counts");
       assert(coverage.includes("待检查原生组件 23,883 个") && coverage.includes("涉及资源 3 个"), "Native review should identify objects and resource files separately");
-      assert(coverage.includes("确认的显示文字按条目加入工作台") && coverage.includes("字体与显示提示 2 项"), "Review counts need their actual units and separate presentation hints");
-      assert(button("继续提取文字") && !button("用已提取文字继续制作").disabled, "Component review must retain both adaptation and accepted-text continuation");
+      assert(coverage.includes("字体与显示提示 2 项"), "Presentation hints must remain separate from native object and resource counts");
+      assert(button("继续提取文字") && !button("先处理已提取文字").disabled, "Component review must retain both adaptation and accepted-text continuation");
     }],
     ["release summary offers native review even when text-candidate files are zero", async () => {
       localStorage.setItem(welcomeKey, "seen");
@@ -527,7 +527,7 @@ export async function runOnboardingChecks() {
       assert(!progress.includes("已完成 20"), "Processed jobs must not be presented as successful jobs");
       const hero = document.querySelector(".overview-hero")?.textContent ?? "";
       assert(hero.includes("本次新增文字 28 条") && hero.includes("累计补充文字 60 条") && hero.includes("待甄别候选 99 项"), "First-screen output evidence should distinguish new and integrated text");
-      assert(hero.includes("不代表已加入文字工作台"), "Unverified candidates must stay distinct from accepted workbench text");
+      assert(hero.includes("候选通过文字与回写检查后加入工作台"), "Unverified candidates must stay distinct from accepted workbench text");
       assert(hero.includes("五个资源仍需完成改文验证"), "The primary action should show the actual stop reason");
       assert(progress.includes("data/neutral.json") && progress.includes("改文回读校验待完成"), "Pending resources must retain their validation reason");
       assert(button("重试文字提取"), "A failed subset should have a scoped retry action");
@@ -545,7 +545,7 @@ export async function runOnboardingChecks() {
       assert(text.includes("已处理 20 / 20 项") && text.includes("通过 0 项") && text.includes("待处理 20 项"), "An unsuccessful round must not imply completion");
       const outcome = document.querySelector(".technical-outcome")?.textContent ?? "";
       assert(outcome.includes("本次新增文字 0 条 · 累计补充文字 0 条 · 待甄别候选 958 项"), "Zero text output must remain visible");
-      assert(outcome.includes("不代表已加入文字工作台"), "Candidate counts must not imply workbench delivery");
+      assert(outcome.includes("候选通过文字与回写检查后加入工作台"), "Candidate counts must not imply workbench delivery");
     }],
     ["blocked repeated adaptation routes to model settings instead of restarting", async () => {
       localStorage.setItem(welcomeKey, "seen");
@@ -557,7 +557,7 @@ export async function runOnboardingChecks() {
       };
       await mount({ project: detail });
       const hero = document.querySelector(".overview-hero")?.textContent ?? "";
-      assert(hero.includes("模型上下文容量不足") && hero.includes("核对连接与模型容量，保存后再试"), "A model-capacity blocker needs its reason and a matching settings action");
+      assert(hero.includes("模型上下文容量不足") && hero.includes("检查模型设置，保存后重试"), "A model-capacity blocker needs its reason and a matching settings action");
       assert(![...document.querySelectorAll("button")].some(item => item.textContent?.trim() === "重试文字提取"), "A blocked round should not expose another identical retry");
       for (const label of ["翻译待处理文字", "校对当前译文", "重试问题文字"]) {
         assert(button(label).disabled, "Text phase actions should wait for resource adaptation");
@@ -613,7 +613,7 @@ export async function runOnboardingChecks() {
       button("删除项目").click();
       await until(() => Boolean(guide()));
       const text = guide()?.textContent ?? "";
-      assert(text.includes("当前译文、备注和修订历史") && text.includes("已生成成品和存档保留"), "The initial deletion explanation should name both deleted and retained data");
+      assert(text.includes("项目记录、译文、备注和修订") && text.includes("保留原游戏、成品和存档") && text.includes("先停止任务"), "The initial deletion explanation should name both deleted and retained data");
       const option = guide()?.querySelector<HTMLInputElement>('input[type="checkbox"]');
       assert(option && !option.checked && text.includes("同时清理工作目录"), "Removing cached files remains a separate, initially unchecked choice");
       button("取消").click();
@@ -637,16 +637,16 @@ export async function runOnboardingChecks() {
       assert(document.querySelector("main")?.textContent?.includes("尚未生成"), "A missing product must not look like an existing game copy");
       assert(!document.querySelector(".build-summary"), "The page must not invent an output path");
     }],
-    ["a source-only output directs users to generated files and runtime requirements", async () => {
+    ["an output with no identified launcher directs users to generated files", async () => {
       localStorage.setItem(welcomeKey, "seen");
       const detail = project("completed");
       detail.builds[0].launchPath = undefined;
       await mount({ project: detail });
-      assert(document.querySelector(".overview-hero")?.textContent?.includes("启动入口待确认"), "A non-runnable output should explain its current state");
+      assert(document.querySelector(".overview-hero")?.textContent?.includes("启动程序尚未识别"), "An output with no identified launcher should explain its current state");
       assert(![...document.querySelectorAll("button")].some(item => item.textContent?.trim() === "查看成品与试玩"), "Source files should not be labelled as a playable game");
       button("查看输出文件").click();
       await until(() => Boolean(document.querySelector(".build-summary")));
-      assert(document.querySelector("main")?.textContent?.includes("游戏资源或源码副本"), "The output page should identify the artifact type");
+      assert(document.querySelector("main")?.textContent?.includes("资源或源码副本"), "The output page should identify the artifact type");
       assert(![...document.querySelectorAll("button")].some(item => item.textContent?.trim() === "启动游戏"), "Launching requires an actual launch path");
     }],
     ["the shared connection test explicitly identifies the settings shown above it", async () => {
@@ -667,15 +667,15 @@ export async function runOnboardingChecks() {
         reason: "scripts/menu.gd 的改文验证待完成", remainingCandidates: 6,
       };
       await mount({ project: detail });
-      const available = button("用已提取文字继续制作");
+      const available = button("先处理已提取文字");
       assert(!available.disabled, "Verified text should offer an explicit continuation action");
       const blocker = button("需要补充条件");
       assert(available.classList.contains("primary") && !blocker.classList.contains("primary") && blocker.disabled, "Available text remains primary without inventing a model-settings route for an unknown blocker");
-      assert(document.querySelector("main")?.textContent?.includes("已有文字可以先制作"), "Disabled phase actions should explain the available continuation path");
+      assert(document.querySelector("main")?.textContent?.includes("可先处理已提取文字"), "Disabled phase actions should explain the available continuation path");
       available.click();
       await until(() => Boolean(document.querySelector(".technical-deferred")));
       assert(availableStarts === 1 && starts === 0, "Continuation must use the backend validation API rather than restart adaptation");
-      assert(document.querySelector(".technical-deferred")?.textContent?.includes("其余内容保留原文"), "Partial production should explain the retained resources");
+      assert(document.querySelector(".technical-deferred")?.textContent?.includes("其余资源保留原文"), "Partial production should explain the retained resources");
       assert(document.querySelector(".technical-progress")?.textContent?.includes("scripts/menu.gd 的改文验证待完成"), "The deferred resource reason should remain available");
       assert(!document.querySelector(".technical-stop"), "Deferred coverage should not remain a production-blocking error");
     }],
@@ -686,12 +686,12 @@ export async function runOnboardingChecks() {
       detail.adaptationPending = detail.adaptationAvailable = detail.canContinueAvailableText = true;
       detail.adaptation = { status: "needs-review", retryable: true };
       await mount({ project: detail });
-      assert(![...document.querySelectorAll("button")].some(item => item.textContent?.trim() === "用已提取文字继续制作"), "Empty text cannot bypass native verification");
+      assert(![...document.querySelectorAll("button")].some(item => item.textContent?.trim() === "先处理已提取文字"), "Empty text cannot bypass native verification");
       assert(button("翻译待处理文字").disabled, "An empty project should retain its translation gate");
       detail.total = 10;
       detail.canContinueAvailableText = false;
       await mount({ project: detail });
-      assert(![...document.querySelectorAll("button")].some(item => item.textContent?.trim() === "用已提取文字继续制作"), "Native validation eligibility must come from the backend");
+      assert(![...document.querySelectorAll("button")].some(item => item.textContent?.trim() === "先处理已提取文字"), "Native validation eligibility must come from the backend");
     }],
     ["deferred coverage permits text stages and offers a resource-only retry", async () => {
       localStorage.setItem(welcomeKey, "seen");
@@ -704,7 +704,7 @@ export async function runOnboardingChecks() {
         assert(!button(label).disabled, "Deferred coverage should allow text stages to continue");
       }
       const outcome = document.querySelector(".technical-outcome")?.textContent ?? "";
-      assert(outcome.includes("待甄别候选 7 项") && outcome.includes("不代表已加入文字工作台"), "Deferred coverage must retain its unresolved candidate count without claiming delivery");
+      assert(outcome.includes("待甄别候选 7 项") && outcome.includes("候选通过文字与回写检查后加入工作台"), "Deferred coverage must retain its unresolved candidate count without claiming delivery");
       assert(!document.querySelector(".technical-stop"), "Deferred resource work is not a stopped text phase");
       button("提取剩余文字").click();
       await until(() => adaptationRetries === 1 && Boolean(document.querySelector(".overview-hero h2")?.textContent?.includes("提取剩余文字")));
@@ -718,8 +718,8 @@ export async function runOnboardingChecks() {
       await mount({ project: detail });
       assert(button("查看成品与试玩") && button("提取剩余文字"), "Partial production should retain both its output and supplement action");
       const outcome = document.querySelector(".technical-outcome")?.textContent ?? "";
-      assert(outcome.includes("待甄别候选 3 项") && outcome.includes("不代表已加入文字工作台"), "Completed text must not erase outstanding resource coverage or claim candidates are accepted");
-      assert(document.querySelector(".technical-deferred")?.textContent?.includes("使用已提取的文字继续制作"), "Partial output should identify its accepted text scope");
+      assert(outcome.includes("待甄别候选 3 项") && outcome.includes("候选通过文字与回写检查后加入工作台"), "Completed text must not erase outstanding resource coverage or claim candidates are accepted");
+      assert(document.querySelector(".technical-deferred")?.textContent?.includes("制作范围：已提取文字") && document.querySelector(".technical-deferred")?.textContent?.includes("其余资源保留原文"), "Partial output should identify its accepted text scope");
     }],
     ["shared task concurrency offers one through thirty-two and saves nine", async () => {
       localStorage.setItem(welcomeKey, "seen");

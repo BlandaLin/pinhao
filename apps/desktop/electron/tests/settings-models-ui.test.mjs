@@ -71,8 +71,8 @@ test('model capacity controls preserve independent shared and role values withou
   assert.match(html, /共享连接最大回复长度[^>]*value="8192"/);
   assert.match(html, /技术模型上下文容量[^>]*value="65536"/);
   assert.match(html, /技术模型最大回复长度[^>]*value="4096"/);
-  assert.match(html, /不是累计使用额度/);
-  assert.match(html, /技术、翻译与校对请求使用此容量/);
-  assert.match(html, /这不是自动识别/);
+  assert.match(html, /单次回复的上限，按模型支持的输出容量填写/);
+  assert.match(html, /留空默认：上下文 32,768 tokens，单次回复 4,096 tokens/);
+  assert.match(html, /修改时填写服务商给出的容量/);
   assert.doesNotMatch(html, /这两项只用于技术 Agent/);
 });

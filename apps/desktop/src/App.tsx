@@ -139,6 +139,10 @@ const issueCategories: Record<string, string> = {
   "text-question": tr("待确认的译文"),
 };
 const stageLabels: Record<string, string> = {
+  "接口恢复后继续": tr("制作已暂停"),
+  "专名接口恢复后继续": tr("制作已暂停"),
+  "统一人物与术语": tr("译名与疑点复核"),
+  "逐场景校对": tr("场景校对中"),
   "技术适配就绪": tr("准备继续提取文字"),
   "技术适配待处理": tr("文字提取待继续"),
   "技术适配已暂停": tr("文字提取已暂停"),
@@ -293,12 +297,12 @@ export default function App() {
   }
   async function reconnectProject() {
     const result = await action("reconnect", async () => {
-      const workspaceDir = await api.chooseDirectory({ title: tr("打开拼好工程文件夹（不是原游戏）") });
+      const workspaceDir = await api.chooseDirectory({ title: tr("选择拼好工程文件夹") });
       return workspaceDir ? api.reconnectProject({ workspaceDir }) : undefined;
     });
     if (result) {
       selectProject(result.id);
-      setNotice(tr("已打开工程，已有译文和进度已保留。点击继续制作后才会调用模型。"));
+      setNotice(tr("工程已打开。点击“继续制作”后调用模型。"));
     }
   }
   function fileDrag(event: DragEvent) {
@@ -428,7 +432,7 @@ export default function App() {
             {theme === "dark" ? <Sun size={17} /> : <Moon size={17} />}
             <span>{theme === "dark" ? tr("日间模式") : tr("深夜模式")}</span>
           </button>
-          <span className="seal-line">{tr("免费分享 · 技术开放")}</span>
+          <span className="seal-line">{tr("免费开源")}</span>
           <small>{tr("拼好汉化 ·")} {appMetadata.version}</small>
         </div>
       </aside>
@@ -481,7 +485,7 @@ export default function App() {
             <>
               <Heading
                 title={tr("游戏项目")}
-                description={tr("拖入游戏文件夹或启动程序，建立独立的文字工作台与制作记录。")}
+                description={tr("拖入游戏文件夹或启动程序。")}
               >
                 <Button disabled={Boolean(busy)} onClick={() => void reconnectProject()}>
                   <FolderOpen size={17} />
@@ -602,7 +606,7 @@ export default function App() {
             <>
               <Heading
                 title={project.name}
-                description={tr("查看文字提取、翻译、校对和成品制作的进度。")}
+                description={tr("查看制作进度，继续或暂停任务。")}
               >
                 <Status value={project.status} />
                 <Button
@@ -626,21 +630,21 @@ export default function App() {
                   {reviewing && <ProgressPanel progress={progress} compact />}
                   <p>
                     {active
-                      ? tr("任务正在后台执行，进度持续保存。可以浏览文字工作台，或暂停后继续。")
+                      ? tr("正在制作，进度自动保存。")
                       : project.status === "paused"
                         ? project.adaptationPending
-                          ? tr("已提取的文字和处理进度已保存，可以继续提取剩余文字。")
-                          : tr("有效成果已保存，从当前进度继续制作。")
+                          ? tr("提取已暂停。点击继续处理剩余文件。")
+                          : tr("成果已保存。点击继续制作。")
                         : project.status === "completed" && project.builds.length > 0
                           ? project.builds.at(-1)?.launchPath
-                            ? tr("本次制作已完成。点击“查看成品与试玩”，检查游戏效果。")
-                            : tr("输出文件已保存，启动入口待确认。点击“查看输出文件”查看结果。")
-                        : tr("翻译与校对游戏文字，再生成可独立运行的游戏。")}
+                            ? tr("成品已生成。打开成品检查游戏。")
+                            : tr("文件已生成，启动程序尚未识别。请打开目录查看。")
+                        : tr("翻译并校对文字，然后生成汉化版。")}
                   </p>
                   {project.adaptationDeferred && (
                     <div className="banner technical-deferred" role="status">
                       <BookOpenText size={18} />
-                      <span>{tr("使用已提取的文字继续制作，其余内容保留原文。")}</span>
+                      <span>{tr("制作范围：已提取文字，其余资源保留原文。")}</span>
                     </div>
                   )}
                   {!active && (productionStopReason || retryReady) && (
@@ -649,18 +653,18 @@ export default function App() {
                       <span>
                         <strong>{retryReady ? tr("可以继续提取文字") : project.adaptationPending ? tr("文字提取已暂停") : tr("制作已暂停")}</strong>
                         {retryReady ? <>
-                          <span>{tr("上次的处理进度已保存。点击“继续提取文字”，处理剩余游戏文件。")}</span>
+                          <span>{tr("点击“继续提取文字”处理剩余文件。")}</span>
                           {productionStopReason && <details><summary>{tr("上次暂停原因")}</summary><p>{errorMessage(productionStopReason)}</p></details>}
                         </> : <>
                           <span>{project.adaptationPending ? pauseSummary : errorMessage(productionStopReason)}</span>
                           {project.adaptationPending && productionStopReason && uiMessage(productionStopReason) !== pauseSummary && <details><summary>{tr("查看暂停原因")}</summary><p>{errorMessage(productionStopReason)}</p></details>}
                           {project.adaptationPending && <span>{hostVerificationBlocked
-                            ? tr("请查看下方待补条件。补齐程序的验证能力后可接续已有候选，不必重新调查；更换模型不能替代格式验证。")
-                            : primaryAction === "settings" ? tr("点击“检查模型设置”，核对连接与模型容量，保存后再试。")
-                            : primaryAction === "blocked" ? tr("具体条件和已保存结果见处理记录；条件未补齐前不会反复发送模型请求。")
+                            ? tr("资源验证条件未满足，请查看下方记录。")
+                            : primaryAction === "settings" ? tr("检查模型设置，保存后重试。")
+                            : primaryAction === "blocked" ? tr("请先处理下方问题，再继续制作。")
                             : tr`点击“${adaptationAction}”，从保存的进度继续。`}</span>}
                         </>}
-                        {continueAvailable && <span>{tr("也可以点击“用已提取文字继续制作”，先翻译已有文字，其余内容保留原文。")}</span>}
+                        {continueAvailable && <span>{tr("也可先处理已提取文字，其余资源保留原文。")}</span>}
                       </span>
                     </div>
                   )}
@@ -712,7 +716,7 @@ export default function App() {
                         disabled={Boolean(busy)}
                         onClick={() => void action("continue-available", () => api.continueAvailableText({ projectId: project.id }))}
                       >
-                        <Play size={17} />{tr("用已提取文字继续制作")}
+                        <Play size={17} />{tr("先处理已提取文字")}
                       </Button>
                     )}
                     {!active && (project.adaptationDeferred && project.adaptationAvailable || canCheckOmissions(project)) && (
@@ -758,7 +762,7 @@ export default function App() {
                     <div role="status" className="technical-progress">
                       <p><strong>{tr("原生工具暂时不可用")}</strong></p>
                       <p>{uiMessage(project.nativeDependencyFailure.message)}</p>
-                      <p className="muted">{tr("请修复程序的工具文件，或重新完整解压便携包，再继续制作。已有成果与诊断会保留；更换模型不能修复缺失的工具。")}</p>
+                      <p className="muted">{tr("请修复工具文件或重新完整解压程序，再继续制作。")}</p>
                     </div>
                   )}
                   {project.adaptation && (
@@ -790,7 +794,7 @@ export default function App() {
                   )}
                   <details className="technical-jobs">
                     <summary>{tr("技术脚本执行 ·")} {project.workspaceExecution?.granted ? tr("本项目已授权") : tr("使用内置工具")}</summary>
-                    <p className="muted">{tr("技术 Agent 可编写并运行脚本来处理新格式，默认在游戏工作副本中施工。脚本使用当前 Windows 用户权限，可以访问该用户的文件及网络。API 密钥由主程序保管，产品不向脚本传入密钥。")}</p>
+                    <p className="muted">{tr("技术脚本默认在游戏工作副本中运行，拥有当前 Windows 用户的文件与网络权限。主程序不向脚本传入 API 密钥。")}</p>
                     <div className="button-row">
                       {project.workspaceExecution?.granted ? <Button disabled={Boolean(busy) || active}
                         title={active ? tr("暂停当前任务后可以撤销脚本执行授权") : tr("撤销后继续使用内置工具与轻量适配器")}
@@ -813,23 +817,23 @@ export default function App() {
                 </div>
                 <NameCheckSummary project={project} />
                 {Boolean(project.needsEvidence) && <p className="muted">
-                  {tr("有")} {(project.needsEvidence || 0).toLocaleString(uiLocale)} {tr("条文字待核对，当前内容已保留。可在文字工作台查看疑点，或选择“定向重审疑点”，不必重新校对全部译文。")}
+                  {tr("有")} {(project.needsEvidence || 0).toLocaleString(uiLocale)} {tr("条文字有疑点。请在工作台查看，或选择“定向重审疑点”。")}
                 </p>}
                 {project.adaptationPending && !project.publication?.materialReady && <p className="muted">
                   {continueAvailable
-                    ? tr("已有文字可以先制作：点击上方“用已提取文字继续制作”。剩余资源保留原文，可稍后再提取。")
+                    ? tr("可先处理已提取文字，剩余资源稍后处理。")
                     : project.total === 0
-                      ? tr("还没有可翻译的文字，请先完成上方的文字提取。")
-                      : tr("已有文字仍需通过写回检查，请先继续上方的文字提取。")}
+                      ? tr("尚无可翻译文字，请先继续提取。")
+                      : tr("文字尚未通过回写检查，请先继续提取。")}
                 </p>}
                 <div className="button-row spaced">
                   {([
                     ["translation", tr("翻译待处理文字"), tr("翻译等待处理的文字，然后生成汉化版")],
                     ["proofreading", tr("校对当前译文"), tr("检查并修订已有译文，然后生成汉化版")],
                     ["repair", tr("重试问题文字"), tr("重新处理翻译或校对失败的文字，以及人名和术语不一致的文字")],
-                    ["review-issues", tr("定向重审疑点"), tr("只重审尚未解决的疑点及必要关联文字，不重新校对全部译文")],
+                    ["review-issues", tr("定向重审疑点"), tr("只检查未解决的疑点和关联文字")],
                   ] as const).map(([mode, label, title]) => (
-                    <Button key={mode} title={project.adaptationPending ? tr("可以先继续提取文字，或点击“用已提取文字继续制作”") : title}
+                    <Button key={mode} title={project.adaptationPending ? tr("请继续提取，或先处理已提取文字") : title}
                       disabled={Boolean(busy) || active || project.total === 0 || project.adaptationPending}
                       busy={busy === mode}
                       onClick={() => void action(mode, () => api.startProject({ projectId: project.id, mode }))}
@@ -847,22 +851,22 @@ export default function App() {
                 <div className="stat">
                   <span>{tr("文字条目")}</span>
                   <strong>{project.total.toLocaleString(uiLocale)}</strong>
-                  <small>{tr("已提取的游戏文字，附所在场景与位置")}</small>
+                  <small>{tr("已提取文字总数")}</small>
                 </div>
                 <div className="stat">
                   <span>{tr("已处理")}</span>
                   <strong>{project.done.toLocaleString(uiLocale)}</strong>
-                  <small>{tr("翻译成果持续保存")}</small>
+                  <small>{tr("译文已保存")}</small>
                 </div>
                 <div className="stat">
                   <span>{tr("待重试文字")}</span>
                   <strong>{project.skipped.toLocaleString(uiLocale)}</strong>
-                  <small>{tr("当前文字已保留，可重新翻译或校对")}</small>
+                  <small>{tr("上次处理失败的文字")}</small>
                 </div>
                 <div className="stat">
                   <span>{tr("生成结果")}</span>
                   <strong>{project.builds.length}</strong>
-                  <small>{tr("生成的文件与检查结果保存在成品页")}</small>
+                  <small>{tr("在“成品与导出”查看")}</small>
                 </div>
               </section>
               <div className="overview-columns">
@@ -910,7 +914,7 @@ export default function App() {
                         ))
                     ) : (
                       <p className="muted spaced">
-                        {tr("开始制作后，任务与处理记录会显示在这里。")}
+                        {tr("尚无制作任务。")}
                       </p>
                     )}
                   </div>
@@ -961,7 +965,7 @@ export default function App() {
               : tr("正在连接")}
             </span>
           </span>
-          <span>{tr("拼好汉化 · 免费分享，技术开放")}</span>
+          <span>{tr("拼好汉化 · 免费开源")}</span>
         </footer>
       </div>
       {snapshot && guideOpen && !creating && (
@@ -997,7 +1001,7 @@ export default function App() {
       {deleting && (
         <Modal title={tr("删除项目")} error={error} busy={busy === "delete"} onClose={() => setDeleting(null)}>
           <p className="dialog-intro">
-            {tr("删除《")}{deleting.name}{tr("》的项目记录、当前译文、备注和修订历史。正在执行的任务会先停止，原版游戏、已生成成品和存档保留。")}
+            {tr("删除《")}{deleting.name}{tr("》的项目记录、译文、备注和修订。先停止任务，保留原游戏、成品和存档。")}
           </p>
           <label className="toggle-line">
             <input type="checkbox" checked={removeWorkspace} onChange={(event) => setRemoveWorkspace(event.target.checked)} />
@@ -1019,8 +1023,8 @@ export default function App() {
       )}
       {executionProject && (
         <Modal title={tr("允许技术 Agent 运行脚本")} error={error} busy={busy === "workspace-execution"} onClose={() => setExecutionProject(null)}>
-          <p className="dialog-intro">{tr("为《")}{executionProject.name}{tr("》启用受管本地执行。技术 Agent 可以编写和运行脚本，调查资源、测试新格式并生成适配配方。")}</p>
-          <p>{tr("脚本以当前 Windows 用户权限运行，可以访问该用户的文件及网络。默认工作位置是游戏工作副本；主程序不向脚本传入 API 密钥。授权仅适用于本项目，可在制作总览撤销。")}</p>
+          <p className="dialog-intro">{tr("为《")}{executionProject.name}{tr("》启用技术脚本，用于调查资源和编写适配器。")}</p>
+          <p>{tr("脚本拥有当前 Windows 用户的文件与网络权限，默认在游戏工作副本中运行，不接收 API 密钥。仅授权此项目，暂停后可撤销。")}</p>
           <div className="dialog-actions">
             <Button disabled={Boolean(busy)} onClick={() => setExecutionProject(null)}>{tr("继续使用内置工具")}</Button>
             <Button variant="primary" busy={busy === "workspace-execution"} onClick={async () => {
@@ -1062,7 +1066,7 @@ export function TechnicalBlockers({ project }: { project: ProjectDetail }) {
     <ul>{requirements.map(({ jobId, resource, candidateId, validationId, need }) => <li key={`${jobId ?? "project"}:${need.requirementRef}`}>
       <strong>{resource || tr("游戏资源验证")}</strong>
       <p>{need.kind === "FORMAT_SOURCE_STALE" ? tr("来源或验证条件已变化，需要按当前资源重新验证。")
-        : need.kind.startsWith("FORMAT_") ? tr("尚缺文字定位、资源结构或安全回写的验证能力。") : tr("此项验证尚有条件未满足。")}</p>
+        : need.kind.startsWith("FORMAT_") ? tr("缺少文字定位、资源结构或回写验证支持。") : tr("验证条件未满足，详见技术详情。")}</p>
       <small>{tr("候选：")}{candidateId ?? tr("已保留")} {tr("· 验证：")}{validationId ?? tr("已保留")}</small>
       <details><summary>{tr("技术详情")}</summary><p>{need.kind} · {need.requirementRef}</p>
         {need.nextActions?.map((action, index) => <p key={index}>{uiMessage(action)}</p>)}</details>
@@ -1077,7 +1081,7 @@ export function AdaptationOutcome({ adaptation, coverage }: { adaptation: NonNul
     adaptation.remainingCandidates !== undefined ? tr`待甄别候选 ${adaptation.remainingCandidates.toLocaleString(uiLocale)} 项${coverage?.truncated ? tr("（扫描尚未完整）") : ""}` : "",
   ].filter(Boolean);
   return facts.length > 0 ? <div className="technical-outcome"><p>{facts.join(" · ")}</p>
-    {Boolean(adaptation.remainingCandidates) && <small>{tr("候选尚未通过文字与回写检查，不代表已加入文字工作台。")}</small>}</div> : null;
+    {Boolean(adaptation.remainingCandidates) && <small>{tr("候选通过文字与回写检查后加入工作台。")}</small>}</div> : null;
 }
 
 function CreateProject({
@@ -1120,7 +1124,7 @@ function CreateProject({
     <Modal title={tr("导入游戏")} onClose={onClose} busy={busy} error={error}>
       <form onSubmit={submit}>
         <p className="dialog-intro">
-          {tr("选择含有游戏启动程序的目录，在游戏旁建立“游戏名-拼好工程”，原版游戏保持不变。")}
+          {tr("选择游戏目录。工程建在游戏旁，不修改原版。")}
         </p>
         {nativeDesktop && (
           <div className={`game-drop-target ${dragging ? "active" : ""}`}>
@@ -1280,7 +1284,7 @@ function Release({
       buildId: latest.id,
       filePath: path,
       target: "joiplay",
-    }), tr("JoiPlay 游玩包已生成，使用步骤与兼容性检查结果已放入包内。"));
+    }), tr("JoiPlay 包已生成，包内附使用说明和检查结果。"));
     if (result && currentProjectId.current === projectId)
       setLastExport({ projectId, path: result.path, target: "joiplay", warnings: result.warnings });
   }
@@ -1388,13 +1392,13 @@ function Release({
               </div>
             </div>
             <Checks build={latest} />
-            {!latest.launchPath && <p className="muted">{tr("本次保存的是游戏资源或源码副本，启动入口待确认。点击“打开目录”查看输出文件。")}</p>}
+            {!latest.launchPath && <p className="muted">{tr("已生成资源或源码副本，启动程序尚未识别。请打开目录查看。")}</p>}
             {lastExport?.projectId === project.id && (
               <div className="build-summary">
                 <div>
                   <strong>{lastExport.target === "joiplay" ? tr("JoiPlay 游玩包已生成") : tr("分享 ZIP 已生成")}</strong>
                   <p className="path-text">{lastExport.path}</p>
-                  {lastExport.target === "joiplay" && <p className="muted">{tr("在手机上用 JoiPlay 导入这个 RGA 文件。包内附有使用步骤与兼容性检查结果。")}</p>}
+                  {lastExport.target === "joiplay" && <p className="muted">{tr("在手机上用 JoiPlay 导入此 RGA 文件。")}</p>}
                   {lastExport.warnings?.map((warning, index) => <p className="muted" key={index}>{uiMessage(warning)}</p>)}
                 </div>
                 {nativeDesktop && (
@@ -1410,7 +1414,7 @@ function Release({
           </>
         ) : (
           <p className="muted spaced">
-            {tr("文字准备好后，点击“生成汉化版”创建第一个独立成品。")}
+            {tr("尚无成品。")}
           </p>
         )}
       </section>
@@ -1493,7 +1497,7 @@ function Release({
         >
           <form onSubmit={(event) => void share(event)}>
             <p className="dialog-intro">
-              {tr("将游戏成品、使用说明和所需许可证打包成 ZIP，方便发送给其他玩家。")}
+              {tr("打包游戏成品、说明和许可证。")}
             </p>
             <PathField
               label={tr("分享 ZIP 保存位置")}
@@ -1529,7 +1533,7 @@ function Release({
           busy={busy === "cleanup"}
         >
           <p className="dialog-intro">
-            {tr("清理可删除的旧成品和临时缓存。最新成品、译文工作台和检测到的存档继续保留。")}
+            {tr("删除旧成品和临时缓存，保留最新成品、译文和检测到的存档。")}
           </p>
           <div className="dialog-actions">
             <Button onClick={() => setCleanup(false)} disabled={Boolean(busy)}>

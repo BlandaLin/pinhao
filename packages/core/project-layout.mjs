@@ -10,7 +10,7 @@ const within = (root, target) => {
 export const projectFileName = name => String(name).replace(/[<>:"/\\|?*\x00-\x1f]/g, '_').replace(/[. ]+$/g, '').trim() || '游戏';
 
 export function workspaceLocationError(directory, cause) {
-  return Object.assign(new Error(`无法在“${directory}”创建工程，请选择有写入权限和足够空间的工作位置。${cause?.code === 'ENOSPC' ? ' 当前磁盘空间不足。' : ''}`, { cause }),
+  return Object.assign(new Error(`无法创建工程：${directory}。${cause?.code === 'ENOSPC' ? '磁盘空间不足，请选择其他位置。' : '请检查写入权限和磁盘空间。'}`, { cause }),
     { code: 'WORKSPACE_LOCATION_REQUIRED', directory, reason: cause?.code });
 }
 

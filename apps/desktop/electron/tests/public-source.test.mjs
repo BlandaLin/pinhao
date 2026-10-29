@@ -29,6 +29,9 @@ test('public source selects maintained code, neutral fixtures and licenses even 
   assert.equal(isPublicSourcePath('cases/README.md'), false);
   assert.equal(isPublicSourcePath('apps/desktop/.env.production.json'), false);
   assert.equal(isPublicSourcePath('README.en.md'), true);
+  assert.equal(isPublicSourcePath('.github/media/overview.jpg'), true);
+  assert.equal(isPublicSourcePath('.github/media/overview.jpeg'), true);
+  assert.equal(isPublicSourcePath('local/screenshots/private.jpg'), false);
   for (const file of ['README.md', 'LICENSE', 'COPYING', 'adapters/vendor/wolftl/LICENSE', 'adapters/fixtures/lcf-neutral.edb', 'adapters/python/templates/localization.rb', 'apps/desktop/public/pinhao-app-icon.ico', '.github/workflows/test.yml', 'kits/workbench-tutorial/examples/rpgmaker/source/data/Actors.json']) assert.equal(isPublicSourcePath(file), true, file);
   for (const file of ['CONTEXT.md', 'AGENTS.md', 'research/mtool/README.md', 'cases/catalog.json', 'docs/product/FEEDBACK.md', 'scripts/consolidate_legacy.py', 'scripts/index_cases.py', 'scripts/verify_project.py', 'local/reports/README.md', 'packages/core/node_modules/cache.json', 'apps/desktop/dist/main.js', 'apps/desktop/.env', 'adapters/vendor/tool.exe', 'adapters/python/__pycache__/worker.pyc', 'docs/../../local/report.md', 'docs\\report.md', '/README.md', 'notes.md']) assert.equal(isPublicSourcePath(file), false, file);
 });

@@ -29,15 +29,13 @@ export function TechnicalPublicationStatus({ project }: { project: Pick<ProjectD
     number(state.pendingIntegration) !== null ? tr`等待接入 ${number(state.pendingIntegration)} 批` : "",
     state.stale ? tr`需重新验证 ${number(state.stale)} 批` : "",
   ].filter(Boolean);
-  const labels: Record<string, string> = { running: tr("进行中"), queued: tr("排队中"), yielded: tr("已交还执行机会"), ready: tr("已就绪"), idle: tr("待命"), paused: tr("已暂停"), blocked: tr("待处理问题"), completed: tr("已完成"), failed: tr("待处理问题") };
+  const labels: Record<string, string> = { running: tr("进行中"), queued: tr("排队中"), yielded: tr("等待后续处理"), ready: tr("已就绪"), idle: tr("待命"), paused: tr("已暂停"), blocked: tr("待处理问题"), completed: tr("已完成"), failed: tr("待处理问题") };
   const lanes = [[tr("资源检查"), project.lanes?.adaptation], [tr("文字制作"), project.lanes?.text], [tr("成品制作"), project.lanes?.build]] as const;
   const activity = lanes.filter(([, lane]) => lane && labels[lane.status]).map(([name, lane]) => `${name}：${labels[lane!.status]}`);
   return <div className="technical-progress" role="status" aria-label={tr("技术成果接入")} data-generation={state.generation}>
     {facts.length > 0 && <p>{facts.join(" · ")}</p>}
     {activity.length > 0 && <p>{activity.join(" · ")}</p>}
-    {facts.length > 0 && <p className="muted">{tr("批次数表示技术成果接入情况，不是新增文字数，也不表示游戏文字已全部提取。")}</p>}
-    {state.materialReady && project.adaptationPending && project.status === "running" && <p className="muted">{tr("已接入的文字可以继续制作，剩余游戏文件仍在检查。")}</p>}
-    {Boolean(state.pendingIntegration) && <p className="muted">{tr("尚未接入的成果不会提前用于翻译或生成成品。")}</p>}
+    {state.materialReady && project.adaptationPending && project.status === "running" && <p className="muted">{tr("已接入文字可继续制作，剩余文件检查中。")}</p>}
     {state.lastError && <p className="muted">{tr("接入尚未完成：")}{errorMessage(state.lastError)}</p>}
   </div>;
 }
@@ -148,11 +146,11 @@ export function NameCheckSummary({ project }: {
 export function ResourceCoverageSummary({ coverage }: { coverage: ProjectDetail["coverage"] }) {
   if (!coverage) return null;
   if (coverage.stale) return <p className="muted" role="status">
-    {coverage.addedUnitsSinceScan ? tr`已接入 ${coverage.addedUnitsSinceScan.toLocaleString()} 条文字` : tr("已保存新的适配成果")}{tr("；剩余文件待重新核对。 已保存的文字可继续翻译和生成汉化版。")}</p>;
+    {coverage.addedUnitsSinceScan ? tr`已接入 ${coverage.addedUnitsSinceScan.toLocaleString()} 条文字` : tr("已保存新的适配成果")}{tr("；剩余文件待复查。")}</p>;
   return <>
     <p className="muted">{tr("已提取文字的文件 ")}{coverage.summary.extracted ?? 0}{tr(" 个 · 待检查文字的文件 ")}{coverage.summary["display-text-candidate"] ?? 0}{tr(" 个 · 脚本文件 ")}{coverage.summary["script-resource"] ?? 0}{tr(" 个 · 待检查图片 ")}{coverage.summary["image-candidate"] ?? 0}{tr(" 张")}</p>
-    {Boolean(coverage.summary.nativeReviewObjects) && <p className="muted">{tr("待检查原生组件 ")}{coverage.summary.nativeReviewObjects!.toLocaleString()}{tr(" 个 · 涉及资源 ")}{coverage.summary.nativeReviewResources ?? 0}{tr(" 个。 组件按对象计数，确认的显示文字按条目加入工作台。")}</p>}
-    {Boolean(coverage.summary.presentationItems) && <p className="muted">{tr("字体与显示提示 ")}{coverage.summary.presentationItems}{tr(" 项，随成品检查字形与排版。")}</p>}
+    {Boolean(coverage.summary.nativeReviewObjects) && <p className="muted">{tr("待检查原生组件 ")}{coverage.summary.nativeReviewObjects!.toLocaleString()}{tr(" 个 · 涉及资源 ")}{coverage.summary.nativeReviewResources ?? 0}{tr(" 个")}</p>}
+    {Boolean(coverage.summary.presentationItems) && <p className="muted">{tr("字体与显示提示 ")}{coverage.summary.presentationItems}{tr(" 项")}</p>}
   </>;
 }
 
@@ -310,8 +308,7 @@ function englishCompletionReport(report: CompletionInfo): string {
   const { summary } = report;
   const lines = ["Extracted-text checklist", "",
     `Translated: ${summary.translated}; untranslated: ${summary.untranslated}; skipped: ${summary.skipped}`,
-    `Coverage of extracted text: ${summary.completeness.toFixed(1)}%`,
-    "This is not a claim of full game-text coverage or completed playtesting."];
+    `Coverage of extracted text: ${summary.completeness.toFixed(1)}%`];
   for (const blocker of report.blockers) {
     lines.push("", `${blockerNames[blocker.kind] || blocker.kind}: ${blocker.count}`);
     for (const sample of blocker.samples) {
@@ -329,13 +326,6 @@ function englishCompletionReport(report: CompletionInfo): string {
   }
   return lines.join("\n");
 }
-
-const confidenceNames: Record<ProgressConfidence, string> = {
-  none: tr("估算中"),
-  low: tr("低"),
-  medium: tr("中"),
-  high: tr("高"),
-};
 
 function formatEta(etaMs: number): string {
   const minutes = Math.max(1, Math.round(etaMs / 60000));
@@ -370,6 +360,9 @@ export function ProgressPanel({
   const covered = progress.remaining <= 0;
   const finished = progress.finished;
   const review = finished ? undefined : progress.review;
+  const runtime = progress.runtime;
+  const idle = !finished && !progress.paused && !review && runtime &&
+    runtime.active === 0 && runtime.running === 0 && runtime.queued === 0;
   const measurableReview = review && ["scene", "consistency", "resolve"].includes(review.stage);
   const percent = review
     ? measurableReview && review.total !== null && review.total > 0
@@ -377,14 +370,14 @@ export function ProgressPanel({
     : progress.percent;
   const clock = formatClock(progress.etaAt);
   const eta = review
-    ? progress.paused ? tr("校对已暂停，已保存的审阅结果保留") : review.stage === "scene" ? tr("场景校对中") : reviewLabels[review.stage]
+    ? progress.paused ? tr("校对已暂停") : review.stage === "scene" ? tr("场景校对中") : reviewLabels[review.stage]
     : finished
     ? tr("本轮制作完成")
     : covered
-      ? progress.paused ? tr("当前制作已暂停，译文持续保留") : progress.phaseLabel || tr("译文已齐，继续后续制作")
+      ? progress.paused ? tr("制作已暂停") : progress.phaseLabel || tr("译文已齐，继续后续制作")
     : progress.paused
       ? progress.etaMs === null
-        ? tr("初翻已暂停，继续后重新估算剩余时间")
+        ? tr("初翻已暂停")
         : tr`初翻已暂停，继续后预计剩余${formatEta(progress.etaMs)}`
       : progress.confidence === "none" || progress.etaMs === null
         ? tr("初翻剩余时间正在估算…")
@@ -393,14 +386,10 @@ export function ProgressPanel({
     progress.throughput === null
       ? ""
       : tr`${Math.round(progress.throughput).toLocaleString()} 条/分钟`;
-  const meta = [
+  const meta = idle ? [] : [
     eta,
     covered || review ? "" : pace,
-    covered || review || progress.confidence === "none"
-      ? ""
-      : tr`置信度 ${confidenceNames[progress.confidence]}`,
   ].filter(Boolean);
-  const runtime = progress.runtime;
   const concurrency =
     runtime && runtime.limit > 0 && runtime.active > 0
       ? tr`${runtime.active} / ${runtime.limit} 并发 · 队列 ${runtime.queued}`
@@ -428,17 +417,17 @@ export function ProgressPanel({
         <span style={{ width: `${percent}%` }} />
       </div>}
       {measurableReview && review.total === null && <p className="status-progress-meta">{tr("正在读取校对进度")}</p>}
-      <p className="status-progress-meta">
+      {meta.length > 0 && <p className="status-progress-meta">
         {meta.join(" · ")}
         {clock && !review && !covered && !progress.paused && (
           <span>{tr("（预计 ")}{clock}{tr(" 前后）")}</span>
         )}
-      </p>
-      {!review && !covered && progress.phaseLabel && <p className="status-progress-meta">{progress.phaseLabel}</p>}
+      </p>}
+      {!idle && !review && !covered && progress.phaseLabel && <p className="status-progress-meta">{progress.phaseLabel}</p>}
       {concurrency && <p className="status-progress-meta">{concurrency}</p>}
       <p className="status-progress-note">{review
-        ? `${covered ? tr("初翻已完成；") : ""}${review.stage === "committed" ? tr("校对结果已保存，接下来生成成品。") : tr("审阅结果持续保存，收尾检查完成后统一更新当前译文。")}`
-        : tr("以上进度只统计已提取文字；校对、成品生成与游戏内显示另行检查。")}</p>
+        ? review.stage === "committed" ? tr("校对结果已保存。") : tr("审阅结果自动保存，收尾后更新译文。")
+        : tr("统计范围：已提取文字。")}</p>
       {review && review.stage !== "committed" && onViewSceneReview && <Button
         variant="ghost" onClick={onViewSceneReview}
       >{tr("查看场景审阅结果")}</Button>}
@@ -530,7 +519,7 @@ export function CompletionCard({
       setReport({
         loading: false,
         error: "",
-        text: result.text || tr("清单没有更多内容。"),
+        text: result.text || tr("无额外记录。"),
       });
     } catch (failure) {
       setReport({ loading: false, error: errorMessage(failure), text: "" });
@@ -572,7 +561,7 @@ export function CompletionCard({
         {summary.untranslated.toLocaleString()}{tr(" · 已跳过")}{" "}
         {summary.skipped.toLocaleString()}
       </p>
-      <p className="muted">{tr("只统计已提取的文字，不代表全游戏文字已找齐，也不代表已通过游玩检查。")}</p>
+      <p className="muted">{tr("统计范围：已提取文字。")}</p>
       {completion.blockers.length === 0 ? (
         <p className="completion-clear">
           <Check size={15} aria-hidden="true" />{tr("已提取的文字条目检查完成")}</p>
@@ -586,12 +575,12 @@ export function CompletionCard({
             {untranslated.length > 0 ? (
               untranslated.map(row)
             ) : (
-              <li className="quiet">{tr("这一类暂时没有条目")}</li>
+              <li className="quiet">{tr("无记录")}</li>
             )}
             {others.length > 0 && (
               <>
                 <li className="group">
-                  <span>{tr("其他记录（统计口径与上面不同，请分开看待）")}</span>
+                  <span>{tr("其他待处理记录")}</span>
                 </li>
                 {others.map(row)}
               </>
@@ -599,12 +588,12 @@ export function CompletionCard({
           </ul>
         </>
       )}
-      {needsAdaptation && <p className="muted">{tr("部分游戏资源仍需检查，当前清单只统计已提取的文字。")}</p>}
+      {needsAdaptation && <p className="muted">{tr("仍有游戏资源待检查。")}</p>}
       {completion.latestBuild?.outputModified ? (
         <p className="muted">{tr("成品文件已有修改，请重新生成后再导出分享包。")}</p>
       ) : !completion.latestBuild?.runtimeVerified ? (
-        <p className="muted">{tr("接下来启动成品，核对对话、字体、分支与存档，再决定分享。")}</p>
-      ) : <p className="muted">{tr("本次成品已记录游玩验证，可结合检查清单确认分享内容。")}</p>}
+        <p className="muted">{tr("分享前请打开成品，检查对白、字体、分支和存档。")}</p>
+      ) : <p className="muted">{tr("已保存本次游玩检查记录。")}</p>}
       {completion.sections.length > 0 && (
         <details className="checks">
           <summary>{tr("未译文字的分布 ")}<span>{completion.sections.length}{tr(" 项")}</span>
@@ -625,7 +614,7 @@ export function CompletionCard({
             ))}
           </ul>
           {completion.sections.length > 12 && (
-            <p className="muted">{tr("另有 ")}{completion.sections.length - 12}{tr(" 类未展开，查看清单可获取全部内容。")}</p>
+            <p className="muted">{tr("另有 ")}{completion.sections.length - 12}{tr(" 类，详见完整清单。")}</p>
           )}
         </details>
       )}

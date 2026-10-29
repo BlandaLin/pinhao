@@ -25,7 +25,7 @@ export function createSaveAssist({ service, worker, gameSessions }) {
       backupDir: entry.backupDir, binding: { projectId: entry.projectId, buildId: entry.buildId ?? null } };
   }
   function capture(entry, state) {
-    if (state.saveFile?.path !== entry.filePath || !/^[a-f0-9]{64}$/.test(state.saveFile.sha256)) throw new Error('存档读取结果缺少版本信息，请重新选择存档');
+    if (state.saveFile?.path !== entry.filePath || !/^[a-f0-9]{64}$/.test(state.saveFile.sha256)) throw new Error('未能校验这份存档，请重新选择。');
     entry.state = { ...state, mode: 'save', connected: true, ready: true };
     return entry.state;
   }

@@ -9,7 +9,7 @@ const rootFiles = new Set(['.gitignore', 'COPYING', 'LICENSE', 'README.md', 'REA
 const publicRoots = new Set(['adapters', 'apps', 'docs', 'kits', 'packages', 'scripts', 'tools', '.github']);
 const privateFiles = new Set(['docs/product/FEEDBACK.md', 'scripts/consolidate_legacy.py', 'scripts/index_cases.py', 'scripts/verify_project.py']);
 const privateDirectories = new Set(['local', 'games', 'work', 'artifacts', 'toolchains', 'node_modules', 'dist', 'dist-host', 'release', 'releases', '__pycache__', '.git', '.codex', '.agents', '.venv']);
-const sourceExtensions = new Set(['.md', '.mjs', '.cjs', '.py', '.rb', '.cs', '.gd', '.tjs', '.json', '.txt', '.js', '.ts', '.tsx', '.css', '.html', '.rpy', '.ks', '.edb', '.emu', '.ico', '.png', '.svg', '.webp', '.yml', '.yaml']);
+const sourceExtensions = new Set(['.md', '.mjs', '.cjs', '.py', '.rb', '.cs', '.gd', '.tjs', '.json', '.txt', '.js', '.ts', '.tsx', '.css', '.html', '.rpy', '.ks', '.edb', '.emu', '.ico', '.png', '.jpg', '.jpeg', '.svg', '.webp', '.yml', '.yaml']);
 
 export function isPublicSourcePath(relative) {
   if (typeof relative !== 'string' || relative.includes('\\') || path.posix.isAbsolute(relative)) return false;

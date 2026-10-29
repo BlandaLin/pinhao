@@ -57,14 +57,13 @@ const storageFailure = error => error?.storageFailure || ['ACCEPTANCE_STORAGE_FA
   || /no space left|not enough (?:disk )?space|disk (?:is )?full|WinError 112/i.test(error?.message ?? '');
 const hostFailure = error => Boolean(error?.hostFailure || storageFailure(error)
   || ['INTEGRATION_PENDING', 'ACCEPTANCE_RECEIPT_CONFLICT'].includes(error?.code));
-const storageFailureMessage = '工作文件被占用，或工作磁盘空间不足、不可写。已保存的成果仍保留，请解除文件占用或检查磁盘后，从已保存进度继续；新工程也可以选择其他工作位置。';
+const storageFailureMessage = '无法写入工作文件。请检查文件占用、工作磁盘空间和写入权限后继续。';
 // 这几类错误重试没有收益：超时要真等满超时，截断要真花掉输出预算。它们的重试上限是 1 次；
 // 只有「模型返回了但不合协议」这类很快的失败才值得用完整个窗口。
 const fastFailCodes = Object.freeze(['MODEL_OUTPUT_TRUNCATED', 'READ_NO_PROGRESS', 'ETIMEDOUT', 'TECHNICAL_REQUEST_TIMEOUT', 'MODEL_REASONING_ONLY']);
 const stopsTextWindow = error => fastFailCodes.includes(asError(error).code)
   || error?.name === 'TimeoutError' || /timed? ?out|timeout/i.test(error?.message ?? '');
-const textWindowStopMessage = remaining => `本批已重试 ${textWindowLimit} 次仍未通过${remaining ? `，剩余 ${remaining} 条` : ''}，已暂停并保留当前译文，可手工处理后继续`;
-const windowStopMessage = remaining => `技术适配累计预算已用完，剩余 ${remaining} 项资源未解决；已有成果保留，继续执行需要明确追加预算`;
+const windowStopMessage = remaining => `技术适配测试预算已用完，剩余 ${remaining} 项资源未解决。请明确追加测试预算后继续。`;
 export const defaultSettings = (targetLanguage = 'zh-Hans') => ({ connection: defaultConnection(), roles: Object.fromEntries(roles.map((role) => [role, { useShared: true, connection: defaultConnection() }])), concurrency: 3, pauseOnLocalFailure: false, processImages: false, proofreading: true, targetLanguage, fontPath: '' });
 const capabilityFallback = [
   ['mv', 'RPG Maker MV', true], ['mz', 'RPG Maker MZ', true], ['vxace', 'RPG Maker VX Ace', true],

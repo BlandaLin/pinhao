@@ -193,11 +193,11 @@ export default function Assist({
           "restoreMovement",
         ].includes(input.action)
           ? input.action === "restoreMovement"
-            ? tr("移动设置恢复完成，游戏后续改动的设置会保留。")
+            ? tr("移动设置已恢复，游戏随后改过的设置保持不变。")
             : tr("移动与探索的修改已生效。")
           : input.action === "setNamedVariable"
-            ? tr("已修改当前运行值；是否随存档保留由游戏决定，请重新读档核对。")
-            : tr("修改已立即应用。请在游戏内存档，保留这些改动。"),
+            ? tr("已更新当前值。是否写入存档由游戏决定，请存档后再读档核对。")
+            : tr("修改已生效，请在游戏内存档以保留改动。"),
       );
       if (
         input.action === "setNamedVariable" &&
@@ -205,8 +205,8 @@ export default function Assist({
       )
         setNotice(tr("所有存档共用的变量已修改并保存。"));
       if (saveMode) setNotice(next.changed === false
-        ? tr("数值没有变化，未写入存档，也未创建新备份。")
-        : tr("修改已写入所选存档，修改前的存档已备份。在游戏中读取这份存档后生效。"));
+        ? tr("数值未变，存档和备份保持不变。")
+        : tr("已备份原文件并写入修改。在游戏中读取这份存档后生效。"));
       return true;
     } catch (error) {
       if (currentProjectId.current === projectId) onError(error);
@@ -263,7 +263,7 @@ export default function Assist({
         ...(backup.targetAbsent ? { expectedAbsent: true } : { expectedSaveSha256: backup.currentSha256 }) });
       if (currentProjectId.current !== projectId) return;
       setState(next); setGoldDraft(null); setGoldSaveVersion(undefined); setEditing(null); setBackups(null);
-      setNotice(next.backupCreated ? tr("备份已恢复，恢复前文件的原始内容也已另存备份。在游戏中读取这份存档后生效。") : tr("备份已恢复。在游戏中读取这份存档后生效。"));
+      setNotice(next.backupCreated ? tr("存档已恢复，恢复前的文件也已备份。请在游戏中读档。") : tr("备份已恢复。在游戏中读取这份存档后生效。"));
     } catch (error) { if (currentProjectId.current === projectId) onError(error); }
     finally { if (currentProjectId.current === projectId) setBusy(""); }
   }
@@ -274,7 +274,7 @@ export default function Assist({
       const next = await api.configureAssist({ projectId, enabled });
       if (currentProjectId.current !== projectId) return;
       setLiveEnabled(next.assistEnabled !== false); setState({ connected: false }); setEditing(null); setSection("data");
-      setNotice(enabled ? tr("实时辅助已开启。重新启动成品后连接。") : tr("实时辅助已关闭，下次启动也会保持关闭。已经修改的游戏进度和存档不会撤销。"));
+      setNotice(enabled ? tr("实时辅助已开启。重新启动成品后连接。") : tr("实时辅助已关闭，下次启动仍保持关闭。此前修改的进度和存档不会还原。"));
     } catch (error) { if (currentProjectId.current === projectId) onError(error); }
     finally { if (currentProjectId.current === projectId) setBusy(""); }
   }
@@ -306,10 +306,10 @@ export default function Assist({
         title={tr("游玩辅助")}
         description={
           saveMode
-            ? tr("先关闭游戏，再打开存档修改数据。每次修改前自动备份，在游戏中读档后生效。")
+            ? tr("关闭游戏后选择存档。修改前自动备份，读档后生效。")
             : !liveEnabled
-              ? tr("实时辅助已关闭，成品仍可正常游玩。需要查看或修改游戏状态时，先开启实时辅助，再从这里启动成品。")
-            : tr("从工作台启动汉化成品，查看并修改金钱、物品和游戏状态。可用功能按游戏显示。")
+              ? tr("实时辅助已关闭。要修改游戏数据，请先开启辅助，再从这里启动成品。")
+            : tr("启动成品后修改金钱、物品和游戏状态，功能按游戏显示。")
         }
       >
         <span className={`status ${connected ? "ready" : "paused"}`}>
@@ -335,10 +335,10 @@ export default function Assist({
           <div className="panel-heading"><h2>{liveEnabled ? tr("实时辅助已开启") : tr("实时辅助已关闭")}</h2>
             <Button busy={busy === "configure-assist"} disabled={Boolean(busy)} onClick={() => void configureLive()}>{liveEnabled ? tr("关闭实时辅助") : tr("开启实时辅助")}</Button>
           </div>
-          <p className="muted">{tr("更改前请关闭由工作台启动的游戏。关闭后不再连接，也不会撤销已改的剧情或存档；RPG Maker XP / VX / VX Ace 的最新成品会恢复辅助安装前的脚本，其他引擎停止辅助会话。")}</p>
+          <p className="muted">{tr("切换前请关闭游戏。关闭辅助不会还原剧情或存档。XP / VX / VX Ace 会恢复最新成品的原脚本，其他引擎停止辅助连接。")}</p>
           {project.assistance?.status === "install_failed" && !connected && (
             <>
-              <p className="muted">{tr("上次辅助安装未完成，已恢复原文件，普通游戏仍可游玩。先关闭游戏，再重新安装并连接。")}</p>
+              <p className="muted">{tr("辅助安装失败，原文件已恢复。关闭游戏后可重新安装，也可不启用辅助直接游玩。")}</p>
               <Button busy={busy === "launch"} disabled={Boolean(busy) || !liveEnabled || !project.builds.length} onClick={() => void launch()}>{tr("重新安装并连接")}</Button>
             </>
           )}
@@ -402,7 +402,7 @@ export default function Assist({
           </div>
           <p className="body-copy">
             {!nativeDesktop
-              ? tr("在桌面版中启动汉化成品后，即可连接游戏并使用辅助功能。")
+              ? tr("请在桌面版启动成品并进入游戏，再连接辅助。")
               : uiMessage(project.assistance?.detail) || uiMessage(engine?.detail) || tr("完成游戏识别后，这里会显示可用功能。")}
           </p>
           <div className="capability-list">
@@ -445,8 +445,8 @@ export default function Assist({
           }
         >
           {!saveMode && !liveEnabled
-            ? tr("当前不会连接或显示游戏状态。点击上方“开启实时辅助”后，再启动最新成品。已经修改的剧情和存档不会撤销。")
-            : uiMessage(state.detail) || (saveMode ? tr("先关闭游戏，再选择存档。每次修改前会自动备份；修改后启动游戏，读取这份存档即可生效。") : tr("点击“启动最新成品”，再在游戏中开始新游戏或读取存档。这里会自动显示当前游戏状态。"))}
+            ? tr("点击上方“开启实时辅助”，再启动最新成品。此前修改的剧情和存档保持不变。")
+            : uiMessage(state.detail) || (saveMode ? tr("关闭游戏后选择存档。修改前会备份原文件，修改后在游戏中读档。") : tr("点击“启动最新成品”，再开始新游戏或读档，连接后显示游戏状态。"))}
           {!saveMode && !project.builds.length && tr("先在“成品与导出”生成汉化版。")}
         </Empty>
       ) : section === "exploration" && rpgSections ? (
@@ -465,8 +465,8 @@ export default function Assist({
               <EngineLabel engine={state.engine || project.engine} label={engine?.name} /> · {saveMode ? tr("存档状态") : tr("实时状态")}
             </span>
             <small>
-              {saveMode ? tr("每次修改都会写入所选存档，并备份修改前的文件。在游戏中读档后生效。") : namedData
-                ? tr("变量修改当前运行值。每项说明是否已知可保存；未确认的字段需在游戏中存档、读档后核对。")
+              {saveMode ? tr("修改会写入所选存档，写入前备份原文件。请在游戏中读档。") : namedData
+                ? tr("修改先更新当前游戏。保存方式见各项说明；未注明的请存档、读档后核对。")
                 : tr("修改立即生效。在游戏内存档后，即可保留改动。")}
             </small>
           </div>
@@ -525,7 +525,7 @@ export default function Assist({
                       >{tr("设置金钱")}</Button>
                     </form>
                   )}
-                  <p className="assist-hint muted">{tr("输入修改后的金钱总额，再点击“设置金钱”。")}</p>
+                  <p className="assist-hint muted">{tr("填写金钱总额，点击“设置金钱”。")}</p>
                 </section>
               )}
               {state.actors !== undefined && (
@@ -767,10 +767,10 @@ export default function Assist({
               {rows.total === 0 && (
                 <p className="muted spaced">
                   {search
-                    ? tr("匹配 0 条。更换名称或编号后重新搜索。")
+                    ? tr("没有匹配的数据，请换个名称或编号。")
                     : saveMode
-                      ? tr("所选存档中，这类数据共 0 条。可选择其他存档查看。")
-                      : tr("当前读取到 0 条数据。继续游玩后，这里会自动更新。")}
+                      ? tr("这份存档没有这类数据，可选择其他存档查看。")
+                      : tr("暂未读取到这类数据，列表随游戏状态更新。")}
                 </p>
               )}
             </div>
@@ -796,10 +796,10 @@ export default function Assist({
               </div>
             </div>
             <p className="muted assist-hint">
-              {state.truncated && tr`当前列表只包含部分字段：${uiMessage(state.limitReason) || tr("已达到本轮扫描上限")}。搜索仅覆盖已读取的字段。`}
+              {state.truncated && tr`当前只列出部分数据：${uiMessage(state.limitReason) || tr("已达到本轮扫描上限")}。搜索限于已读取的数据。`}
               {namedData
-                ? tr("按列表中的变量名称查找。每项会标明适用于当前游戏，还是所有存档共用。")
-                : tr("按真实编号或作者设置的名称查找，无名称也可修改。不需要 AI 确认。开关和变量可能控制剧情、回想或计数，含义由游戏决定；建议先在游戏内另存一份存档，再逐项尝试。")}
+                ? tr("按变量名搜索。每项标明只用于当前游戏，还是所有存档共用。")
+                : tr("按编号或名称搜索，未命名项也可修改，无需 AI。开关和变量可能影响剧情、回想或计数，请先另存一份游戏存档，再逐项尝试。")}
             </p>
           </section>
         </>
@@ -847,7 +847,7 @@ function AssistEdit({
     try {
       const parsed = parseAssistValue(value, type, target);
       setBusy(true);
-      if (!(await onSave(parsed))) setError(tr("请查看页面中的错误说明，处理后再次点击“确认修改”。"));
+      if (!(await onSave(parsed))) setError(tr("修改未完成，请查看页面中的错误提示后重试。"));
     } catch (failure) {
       setError(errorMessage(failure));
     } finally {

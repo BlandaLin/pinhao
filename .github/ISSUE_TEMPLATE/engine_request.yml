@@ -1,22 +1,27 @@
 name: Engine Compatibility / 引擎兼容
-description: Request support for a format, plugin, or engine variant.
+description: 申请引擎、插件或资源格式支持 / Request support for an engine, plugin, or resource format.
 body:
+  - type: markdown
+    attributes:
+      value: |
+        请说明当前卡在哪一步。可附有权公开的小样，或描述文件结构；不要上传完整游戏、密钥或私人存档。
+        Explain where processing stops. Attach a small sample you have permission to share, or describe the file structure. Keep full games, keys, and private saves out of public reports.
   - type: input
     id: engine
     attributes:
       label: Engine and Version / 引擎及版本
-      placeholder: Engine name, runtime version, and known plugin or archive format
+      placeholder: 引擎、运行器版本或插件名 / Engine, runtime version, or plugin name
     validations:
       required: true
   - type: textarea
     id: result
     attributes:
       label: Current Result / 当前处理结果
-      description: Include the software version, detected capabilities, and failing stage.
+      description: 填写软件版本、识别出的引擎，以及在哪一步停止或漏字 / Include the Pinhao version, detected engine, and the stage that stops or misses text.
     validations:
       required: true
   - type: textarea
     id: sample
     attributes:
       label: Reproduction Sample / 复现样例
-      description: Provide a neutral or freely redistributable minimal sample, or describe the file structure. Redact personal data and credentials.
+      description: 附可公开的小样或资源目录结构，并说明文字在哪里显示 / Attach a shareable sample or resource-directory layout, and describe where the text appears in the game.

@@ -180,7 +180,7 @@ export default function Workbench({
 
   function changeFilter(next: string) {
     if ((viewingReview || next === "reviewed") && dirty) {
-      onNotice(tr("此条译文或备注有待保存的修改，请先保存，或读取已保存版本后再切换查看。"));
+      onNotice(tr("修改未保存。请先保存或读取已保存版本。"));
       return;
     }
     if (viewingReview || next === "reviewed") {
@@ -260,7 +260,7 @@ export default function Workbench({
           unit.id === saved.id ? saved : unit,
         ),
       }));
-      onNotice(action === 'confirm' ? tr("此条文字已由你明确确认；关联文字的独立疑点保持不变") : tr("译文与备注已保存，未自动标记为已校对"));
+      onNotice(action === 'confirm' ? tr("此条已确认，关联条目的疑点未改动") : tr("译文与备注已保存。"));
       await onRefresh();
     } catch (error) {
       onError(error);
@@ -282,7 +282,7 @@ export default function Workbench({
         limit: 10,
       });
       const unit = latest.units.find((item) => item.id === unitId);
-      if (!unit) throw new Error(tr("此条文字需要重新查找。请在文字工作台搜索原文，再打开对应条目。"));
+      if (!unit) throw new Error(tr("未找到此条文字，请搜索原文后重新打开。"));
       if (
         projectRef.current !== projectId ||
         viewRef.current !== view ||
@@ -306,7 +306,7 @@ export default function Workbench({
     <>
       <Heading
         title={tr("文字工作台")}
-        description={tr("查看原文和上下文，修改译文，或用文字工作包交换外部翻译成果。")}
+        description={tr("查看上下文，编辑译文，导入或导出文字工作包。")}
       >
         <Button onClick={() => setExchange("import")}>
           <ArrowDownToLine size={16} />
@@ -351,16 +351,16 @@ export default function Workbench({
       {viewingReview && <p className="workbench-view-note" role="status">
         <strong>{tr("场景审阅结果（已保存）")}</strong>{" · "}
         {result.sceneReview?.committed
-          ? tr("本轮校对已完成；这里保留场景审阅时的结果，定稿后的译文请查看“校对已完成”。")
-          : tr("仅查看已保存的场景校对译文与备注；收尾检查后统一更新当前译文。")}
+          ? tr("这里是场景审阅记录。最终译文见“校对已完成”。")
+          : tr("场景审阅记录只读，收尾检查后更新当前译文。")}
         <Button variant="ghost" onClick={() => changeFilter("all")}>{tr("返回全部文字")}</Button>
       </p>}
       {project.total === 0 ? (
         project.status === "preparing" || project.status === "running" ? (
-          <LoadingState title={tr("正在提取文字")} detail={tr("已提取的文字与上下文会显示在这里。可在“制作总览”查看当前进度。")} />
+          <LoadingState title={tr("正在提取文字")} detail={tr("提取进度见“制作总览”。")} />
         ) : (
           <Empty title={tr("当前项目已提取 0 条文字")}>
-            {tr("打开“制作总览”，查看文件处理进度和下一步操作。")}
+            {tr("文字提取状态见“制作总览”。")}
           </Empty>
         )
       ) : (
@@ -401,7 +401,7 @@ export default function Workbench({
                 {loading ? tr("正在检索文字…")
                   : filter === "proofread" && project.proofread === 0 && unfinishedReview ? <>
                     <strong>{tr("本轮校对尚未完成")}</strong>
-                    <p>{tr("场景审阅结果会持续保存，收尾检查后才会显示在“校对已完成”中。")}</p>
+                    <p>{tr("可先查看场景审阅记录；收尾检查后更新校对状态。")}</p>
                     <Button onClick={viewSceneResults}>{tr("查看场景审阅结果")}</Button>
                   </> : viewingReview && result.sceneReview?.state === "changed" ? <>
                     <strong>{tr("已开始新一轮校对")}</strong>
@@ -409,7 +409,7 @@ export default function Workbench({
                     <Button onClick={viewSceneResults}>{tr("查看本轮场景结果")}</Button>
                   </> : viewingReview ? (search.trim()
                     ? tr("没有符合搜索条件的场景审阅结果，请调整搜索词。")
-                    : tr("暂时没有已保存的场景审阅结果。校对结果保存后会显示在这里。"))
+                    : tr("尚无场景审阅记录。"))
                   : tr("找到 0 条文字。请调整搜索词或筛选条件。")}
               </div>
             )}
@@ -459,7 +459,7 @@ export default function Workbench({
                       {kindNames[selected.kind] || tr("其他游戏文字")}
                     </span>
                     <small>{tr("版本")} {selected.revision}</small>
-                    {!viewingReview && selected.review?.status === "needs_evidence" && <small>{tr("当前译文已保留。可查看下方上下文手动修改，或到“制作总览”定向重审疑点。")}</small>}
+                    {!viewingReview && selected.review?.status === "needs_evidence" && <small>{tr("此条有疑点。请修改后确认，或到总览重审疑点。")}</small>}
                   </div>
                   {!viewingReview && <Button
                     variant="primary"
@@ -541,9 +541,9 @@ export default function Workbench({
                   <Context value={selected.context} />
                 </details>
                 <div className="editor-footnote">
-                  <Check size={14} />{viewingReview ? tr("这里只查看已保存的场景校对结果。要手动修改当前译文，请返回“全部文字”。")
-                    : <>{tr("按 Ctrl + Enter 保存译文与备注。其他任务已修改此条时，会提示你重新读取。")}
-                      {selected.context.syncGroup ? tr("此条译文与其他显示位置关联，保存时会同步修改那些位置的译文，备注仅保存到此条。") : ""}</>}
+                  <Check size={14} />{viewingReview ? tr("场景记录只读。编辑译文请切换到“全部文字”。")
+                    : <>{tr("Ctrl + Enter 保存译文与备注。")}
+                      {selected.context.syncGroup ? tr("保存会同步关联位置的译文，备注仅限此条。") : ""}</>}
                 </div>
               </>
             ) : (
@@ -568,7 +568,7 @@ export default function Workbench({
       {pendingUnit && (
         <Modal title={tr("切换前处理本次修改")} onClose={() => setPendingUnit(null)}>
           <p className="dialog-intro">
-            {tr("此条译文或备注有待保存的修改。选择“继续编辑”可返回保存；选择“放弃修改并切换”会丢弃本次修改，打开另一条文字。")}
+            {tr("当前修改未保存。切换将丢弃修改。")}
           </p>
           <div className="dialog-actions">
             <Button onClick={() => setPendingUnit(null)}>{tr("继续编辑")}</Button>
@@ -594,7 +594,7 @@ export default function Workbench({
           busy={loading}
         >
           <p className="dialog-intro">
-            {tr("读取此条译文和备注已保存的最新版本，并替换编辑框中的内容。本次待保存的修改会被丢弃。")}
+            {tr("读取最新译文与备注，将丢弃当前未保存的修改。")}
           </p>
           <div className="dialog-actions">
             <Button onClick={() => setReloadConfirm(false)} disabled={loading}>
@@ -618,7 +618,7 @@ function Context({ value }: { value: Record<string, unknown> }) {
   const entries = Object.entries(value);
   if (!entries.length)
     return (
-      <p className="muted spaced">{tr("此条文字提供了条目编号和文字类型。可结合原文判断含义。")}</p>
+      <p className="muted spaced">{tr("此条无额外上下文。")}</p>
     );
   const labels: Record<string, string> = {
     file: tr("原文所在文件"),
@@ -740,8 +740,8 @@ function Exchange({
       <form onSubmit={(event) => void submit(event)}>
         <p className="dialog-intro">
           {mode === "export"
-            ? tr("导出 ZIP 文件，交给外部 AI 或译者翻译、校对。工作包包含原文、已有译文、上下文和阅读说明；处理后将工作包导回这里。")
-            : tr("选择处理后的 ZIP 工作包。软件会比较导出时的版本、项目当前版本和包内的新版本。译文或备注发生冲突时，整包暂不导入，当前项目保持原样；核对并统一两边的修改后可重新导入。")}
+            ? tr("导出 ZIP 工作包，包含原文、译文和上下文，供外部翻译或校对。")
+            : tr("选择处理后的 ZIP。译文或备注冲突时整包不导入，核对修改后重试。")}
         </p>
         <PathField
           label={mode === "export" ? tr("工作包保存位置") : tr("处理后的工作包")}
@@ -758,7 +758,7 @@ function Exchange({
               <option value="translation">{tr("初翻：填写目标文字的译文")}</option>
               <option value="proofreading">{tr("校对：审阅已有译文")}</option>
             </select>
-            <small>{tr("仅导出材料，不启动模型；无需在软件中配置 API。校对包只选择已有译文。")}</small>
+            <small>{tr("导出不调用模型。校对包只包含已有译文。")}</small>
           </label>
         )}
         {mode === "export" && (
@@ -780,7 +780,7 @@ function Exchange({
             <p>
               {tr("已导入")} <strong>{result.accepted}</strong> {tr("条，沿用当前内容")}{" "}
               <strong>{result.unchanged}</strong> {tr("条，需核对冲突")}{" "}
-              <strong>{result.conflicts.length}</strong> {tr("条。")}{result.conflicts.length > 0 && tr("本次整包暂不导入，当前项目保持原样。展开下方条目查看译文差异，并核对双方备注；统一修改后重新导入。可在文字工作台搜索条目编号，查看和修改项目当前内容。")}
+              <strong>{result.conflicts.length}</strong> {tr("条。")}{result.conflicts.length > 0 && tr("工作包未导入，项目未改动。请核对下方译文和备注差异，统一修改后重新导入。")}
             </p>
             {result.conflicts.map((conflict) => (
               <details key={conflict.id}>

@@ -64,7 +64,7 @@ export function createRecollectionManager({ projectFor, worker, connectionFor, o
         const history = previous?.history ?? [];
         controller.signal.throwIfAborted();
         if (!pendingCandidates(scan).length) {
-          scan = { ...scan, analysisNotice: scan.candidates.length ? '没有可供本轮审核的候选：已有确认可直接使用，其余条件仍被阻塞。' : '没有可供本轮审核的候选：本轮未提取到可审核条件。' };
+          scan = { ...scan, analysisNotice: scan.candidates.length ? '当前没有可交给 AI 分析的条件。可应用方案及扫描提示见下方。' : '未找到可分析的解锁条件，请查看扫描提示。' };
         }
         await saveJson(paths(project).scan, { ...binding, observation, scan, confirmation, history });
         onChanged();

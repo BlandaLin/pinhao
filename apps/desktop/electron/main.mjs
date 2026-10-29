@@ -1,4 +1,4 @@
-import { tr, uiLanguage } from "../shared/ui-language.js";
+import { tr, uiLanguage, uiMessage } from "../shared/ui-language.js";
 import { app, BrowserWindow, dialog, ipcMain, Menu, nativeImage, nativeTheme, protocol, safeStorage, shell } from 'electron';
 import { commandErrorRecord } from '../../../packages/contracts/command-errors.js';
 import path from 'node:path';
@@ -41,7 +41,7 @@ smokeLog('Main module loaded');
 
 if (storageFailure) {
   console.error(storageFailure);
-  if (process.env.PINHAO_SMOKE !== '1') dialog.showErrorBox(tr("无法打开数据文件夹"), storageFailure.message);
+  if (process.env.PINHAO_SMOKE !== '1') dialog.showErrorBox(tr("无法打开数据文件夹"), tr`无法写入数据文件夹：${dataDir}\n请检查该位置的写入权限和磁盘空间后重新打开。`);
   app.exit(1);
 } else if (!app.requestSingleInstanceLock()) app.quit();
 else {
@@ -127,14 +127,14 @@ else {
   ipcMain.handle('pinhao:command', async (event, method, input) => {
     if (diagnostics) commandLog.record(method, input);
     try {
-      if (event.sender !== window?.webContents || event.senderFrame?.url !== uiUrl) throw new Error(tr("请求来源不匹配"));
+      if (event.sender !== window?.webContents || event.senderFrame?.url !== uiUrl) throw new Error(tr("请求来源无效，请重新打开工作台。"));
       if (serviceMethods.has(method)) {
         const result = ['cleanupProject', 'deleteProject'].includes(method)
           ? await gameSessions.cleanup(input.projectId, () => service[method](input))
           : ['createProject', 'beginProject'].includes(method)
           ? await importWithWorkspaceSelection(value => service[method](value), input, async error => {
             const confirmation = await dialog.showMessageBox(window, { type: 'warning', title: tr("请选择工程位置"),
-              message: tr("无法在所选位置建立拼好工程"), detail: tr`${error.message}\n请选择可写且空间充足的工程保存文件夹。原版游戏不受影响。`,
+              message: tr("无法在此位置创建工程"), detail: tr`${uiMessage(error.message)}\n请选择可写且空间充足的文件夹。`,
               buttons: [tr("选择其他位置"), tr("取消")], defaultId: 0, cancelId: 1, noLink: true });
             if (confirmation.response !== 0) return null;
             const selection = await dialog.showOpenDialog(window, { title: tr("选择拼好工程保存位置"), properties: ['openDirectory', 'createDirectory'] });
@@ -198,11 +198,11 @@ else {
               child.once('exit', (code) => {
                 assist.disconnect(input.projectId); void cleanSession();
                 void service.recordRuntimeObservation({ projectId: input.projectId, buildId: build.id, kind: 'process-exit',
-                  status: code === 0 ? 'passed' : 'pending', detail: code === 0 ? tr("游戏进程已正常退出，游玩检查记录继续保留") : tr`游戏进程已退出（${code ?? tr("信号结束")}），可查看游戏日志` }).catch(() => {});
+                  status: code === 0 ? 'passed' : 'pending', detail: code === 0 ? tr("游戏已正常退出") : tr`游戏已退出（${code ?? tr("信号结束")}），请查看游戏日志。` }).catch(() => {});
               });
               await service.recordRuntimeObservation({ projectId: input.projectId, buildId: build.id, kind: 'launch', status: 'passed',
-                detail: installation.status === 'install_failed' ? tr`${installation.detail || tr("辅助安装失败且已恢复原文件")}；游戏已按普通模式启动，辅助不可用。`
-                  : tr("游戏进程已启动；对话、分支、字体和存档可在试玩中核对") }).catch(() => {});
+                detail: installation.status === 'install_failed' ? tr`${installation.detail || tr("辅助安装失败，原文件已恢复")}；游戏已启动，本次未启用辅助。`
+                  : tr("游戏已启动。请检查对白、选项、字体和存读档。") }).catch(() => {});
             }
             catch (error) { assist.disconnect(input.projectId); await cleanSession(); throw error; }
             return { child, executable, buildId: build?.id };

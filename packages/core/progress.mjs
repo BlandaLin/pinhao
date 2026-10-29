@@ -50,8 +50,8 @@ function creditedWork(tasks, statusOf, taskStats) {
   return { elapsedMs, credited, perUnitMs: credited && elapsedMs ? elapsedMs / credited : null };
 }
 
-const phaseNames = { translation: '正在翻译', scene: '正在校对场景', consistency: '正在核对人物与术语一致性',
-  commit: '正在保存校对结果', completed: '本轮制作完成', complete: '校对已完成', finished: '本轮制作完成' };
+const phaseNames = { translation: '正在翻译', scene: '场景校对中', consistency: '人物与译名检查',
+  commit: '保存校对结果', completed: '本轮制作完成', complete: '校对已完成', finished: '本轮制作完成' };
 
 export function estimateProgress(units, tasks, { now = Date.now(), taskStats, phase, projectStatus, runMode, proofreadingEnabled = true } = {}) {
   const unitList = Array.isArray(units) ? units : [];
@@ -85,12 +85,12 @@ export function estimateProgress(units, tasks, { now = Date.now(), taskStats, ph
 
   const blockers = [];
   if (remaining > 0) {
-    if (pausedAll) blockers.push('所有任务已暂停');
-    else if (!active) blockers.push('没有在跑的任务，需要点继续');
+    if (pausedAll) blockers.push('已暂停');
+    else if (!active) blockers.push('当前无运行任务');
     const stalled = taskStats ? (counts.running ?? 0) > 0 && Number.isFinite(taskStats.latestRunningAt) && now - taskStats.latestRunningAt > STALL_MS
       : taskList.some(task => task?.status === 'running' && time(task.finishedAt) === null
         && now - (time(task.startedAt) ?? now) > STALL_MS);
-    if (stalled) blockers.push('有任务长时间无响应');
+    if (stalled) blockers.push('任务运行超过 10 分钟');
   }
 
   return {
@@ -105,8 +105,8 @@ export function estimateProgress(units, tasks, { now = Date.now(), taskStats, ph
     coverageComplete: remaining === 0,
     finished: projectStatus === 'completed',
     phase, phaseLabel: phaseNames[phase] ?? (projectStatus === 'completed' ? '本轮制作完成'
-      : remaining > 0 ? '正在准备或翻译文字'
-        : runMode === 'translation' || !proofreadingEnabled ? '翻译已完成，可以生成成品' : '译文已齐，继续校对与成品检查'),
+      : remaining > 0 ? '文字处理中'
+        : runMode === 'translation' || !proofreadingEnabled ? '翻译完成，可生成成品' : '译文已齐，继续校对与成品检查'),
   };
 }
 

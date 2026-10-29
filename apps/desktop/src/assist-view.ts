@@ -72,14 +72,14 @@ export function assistRows(state: AssistState, tab: AssistTab): AssistRow[] {
         },
         hint:
           state.mode === "save"
-            ? tr("确认修改后写入所选存档，并备份修改前的文件。在游戏中读取这份存档后生效。")
+            ? tr("写入所选存档前，会备份修改前的文件；在游戏中读取这份存档后生效。")
             : item.persistence === "persistent" || item.scope === "persistent"
             ? tr("确认修改后立即保存，所有存档共用这项数据。")
             : item.persistence === "game-save"
               ? tr("修改立即生效。在游戏内存档后保留，读取其他存档会切换为对应的数据。")
               : item.persistence === "volatile"
-                ? tr("只修改当前运行值，不会随存档保存。")
-                : tr("已改当前运行值；是否随存档保留由游戏决定，请在存档、读档后核对。"),
+                ? tr("只修改当前游戏中的值，不会写入存档。")
+                : tr("修改会更新当前值；是否写入存档由游戏决定，请存档后再读档核对。"),
       })),
     );
   }

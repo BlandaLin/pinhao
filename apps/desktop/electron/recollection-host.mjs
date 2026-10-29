@@ -41,7 +41,7 @@ export function createRecollectionHost({ service, assist, gameSessions }) {
       return exclusive(projectId, async () => {
         const backup = await service.getRecollectionBackup({ projectId, backupId, verify: true });
         const snapshot = assist.snapshot(projectId);
-        if (!snapshot.connected || snapshot.gameSessionId !== backup.capture.gameSessionId) throw new Error('请在应用解锁方案的这次游玩中恢复原值；重新读档或重启游戏后，请重新应用方案。');
+        if (!snapshot.connected || snapshot.gameSessionId !== backup.capture.gameSessionId) throw new Error('请连接创建备份时的那次游玩。读档、新游戏或重启后，旧记录无法恢复当前游玩。');
         if (backup.status === 'restored') throw new Error('此备份已经恢复');
         const state = await assist.command({ projectId, action: 'restoreRecollection', params: { gameSessionId: backup.capture.gameSessionId, backup: backup.capture } });
         return { state, backup: await service.updateRecollectionBackup({ projectId, backupId, status: 'restored' }) };

@@ -125,15 +125,15 @@ export function createAssistBridge() {
       if (!assistActions.includes(action) || session.state.actions && !session.state.actions.includes(action)) throw new Error('请选择当前游戏提供的辅助操作');
       if (['setItem', 'setSwitch', 'setVariable', 'setLevel', 'setExp', 'setHp', 'setMp'].includes(action) && (!Number.isSafeInteger(id) || id < 1)) throw new Error('请选择列表中的有效条目');
       if (['setGold', 'setItem', 'setLevel', 'setExp', 'setHp', 'setMp'].includes(action) && (!Number.isSafeInteger(value) || value < (action === 'setLevel' ? 1 : 0) || value > 99999999)) throw new Error('请输入有效的非负整数');
-      if (action === 'setSwitch' && typeof value !== 'boolean') throw new Error('开关值需要为布尔值');
-      if (action === 'setVariable' && (!['string', 'number', 'boolean'].includes(typeof value) || (typeof value === 'number' && !Number.isFinite(value)) || (typeof value === 'string' && value.length > 2000))) throw new Error('变量值需要为文字、数字或布尔值');
+      if (action === 'setSwitch' && typeof value !== 'boolean') throw new Error('请将开关设置为开启或关闭。');
+      if (action === 'setVariable' && (!['string', 'number', 'boolean'].includes(typeof value) || (typeof value === 'number' && !Number.isFinite(value)) || (typeof value === 'string' && value.length > 2000))) throw new Error('变量可填写文字、数字或开启/关闭，文字长度不能超过 2000。');
       if (action === 'setNamedVariable') {
         const variable = session.state.namedVariables?.find(item => item.scope === params?.scope && (item.store || 'store') === (params?.store || 'store') && item.name === params?.name);
         if (!variable || params?.gameSessionId !== session.state.gameSessionId) throw new Error('请刷新列表并选择当前存档中的变量');
         if (typeof value !== variable.type || typeof value === 'number' && (!Number.isFinite(value) || Math.abs(value) > Number.MAX_SAFE_INTEGER) || typeof value === 'string' && value.length > 2000) throw new Error('请保持变量原有类型，文字长度上限为 2000');
       }
       if (action === 'setItem' && !['item', 'weapon', 'armor'].includes(type)) throw new Error('请选择物品、武器或防具');
-      if (['setThrough', 'setEncounter'].includes(action) && typeof value !== 'boolean') throw new Error('开关值需要为布尔值');
+      if (['setThrough', 'setEncounter'].includes(action) && typeof value !== 'boolean') throw new Error('请将开关设置为开启或关闭。');
       if (action === 'setMoveSpeed' && (!Number.isInteger(value) || value < 1 || value > 6)) throw new Error('移动速度范围为 1–6');
       if (action === 'jump' && (!params || !Number.isInteger(params.dx) || !Number.isInteger(params.dy) || Math.abs(params.dx) > 20 || Math.abs(params.dy) > 20 || params.dx === 0 && params.dy === 0)) throw new Error('跳跃偏移范围为 -20–20，至少移动一格');
       if (action === 'transfer' && (!params || !Number.isInteger(params.mapId) || params.mapId < 1 || !Number.isInteger(params.x) || !Number.isInteger(params.y) || params.x < 0 || params.y < 0 || ![0, 2, 4, 6, 8].includes(params.direction ?? 0))) throw new Error('请选择地图并填写地图内的整数坐标');

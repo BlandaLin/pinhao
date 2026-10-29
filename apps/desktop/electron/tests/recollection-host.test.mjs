@@ -55,7 +55,8 @@ test('host rejects an old confirmation before capturing or writing the new game 
 test('host prevents repeat restoration and cross-game-session writes', async () => {
   const f = fixture();
   f.backup.capture.gameSessionId = 'other-session';
-  await assert.rejects(f.host.restore({ projectId: 'p', backupId: 'backup' }), /这次游玩.*重新读档或重启游戏/);
+  await assert.rejects(f.host.restore({ projectId: 'p', backupId: 'backup' }), /读档.*旧记录无法恢复当前游玩/);
+  assert.deepEqual(f.events, []);
   f.backup.capture.gameSessionId = 'session';
   f.backup.status = 'restored';
   await assert.rejects(f.host.restore({ projectId: 'p', backupId: 'backup' }), /已经恢复/);

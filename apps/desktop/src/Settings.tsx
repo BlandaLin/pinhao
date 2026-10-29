@@ -17,12 +17,12 @@ const roles: { id: Role; name: string; description: string }[] = [
   {
     id: "technical",
     name: tr("技术模型"),
-    description: tr("分析游戏文件，提取文字并处理制作中的技术问题。"),
+    description: tr("分析游戏文件，处理文字提取与构建问题。"),
   },
   {
     id: "translation",
     name: tr("文字模型（翻译与校对）"),
-    description: tr("按完整场景翻译文字，再用同一模型检查准确性、人物称呼和表达。"),
+    description: tr("按场景翻译文字，校对译文、人物称呼和用词。"),
   },
 ];
 
@@ -102,7 +102,7 @@ export default function SettingsPage({
     <>
       <Heading
         title={tr("设置")}
-        description={tr("填写模型服务的连接信息，设置翻译、校对和成品字体。")}
+        description={tr("配置模型连接、制作选项和游戏字体。")}
       >
         <Button
           type="submit"
@@ -120,7 +120,7 @@ export default function SettingsPage({
           <div className="panel-heading">
             <div>
               <h2>{tr("API 连接")}</h2>
-              <p>{tr("API 用于连接模型服务。填写服务商提供的接口地址、模型名称和密钥，使用 OpenAI 兼容格式的接口。本地模型也可按此方式连接。")}</p>
+              <p>{tr("支持 OpenAI 兼容接口，包括提供该接口的本地模型。")}</p>
             </div>
             <PlugZap size={21} />
           </div>
@@ -170,7 +170,7 @@ export default function SettingsPage({
                     </option>
                   ))}
                 </select>
-                <small>{tr("这是所有项目合计的上限，包含游戏文件处理、翻译、校对和图片文字识别（OCR）。")}</small>
+                <small>{tr("所有项目共用此上限，包括技术处理、翻译、校对和图片文字识别。")}</small>
               </label>
               <label className="field">
                 <span>{tr("目标语言")}</span>
@@ -180,7 +180,7 @@ export default function SettingsPage({
                     update({ ...draft, targetLanguage: event.target.value })
                   }
                 />
-                <small>{tr("填写希望译成的语言，例如 zh-Hans（简体中文）或 en（英语）。")}</small>
+                <small>{tr("例如：zh-Hans（简体中文）、en（英语）。")}</small>
               </label>
             </div>
           </details>
@@ -189,9 +189,8 @@ export default function SettingsPage({
           <div className="panel-heading">
             <div>
               <h2>{tr("任务模型")}</h2>
-              <p>{tr("技术模型与文字模型默认使用上方的 API 连接。关闭“使用共享连接”可单独设置；翻译与校对共用文字模型。")}</p>
+              <p>{tr("默认共用上方连接，也可分别设置。翻译与校对共用文字模型。")}</p>
             </div>
-            <span className="tag gold">{tr("任务说明已内置")}</span>
           </div>
           <div className="role-grid">
             {roles.map((role) => (
@@ -253,14 +252,13 @@ export default function SettingsPage({
           <div className="panel-heading">
             <div>
               <h2>{tr("制作偏好")}</h2>
-              <p>{tr("设置翻译后的校对、失败时的处理方式，以及是否翻译图片文字。")}</p>
             </div>
           </div>
           <div className="preferences">
             <label className="toggle-line">
               <div>
                 <strong>{tr("翻译后进行校对")}</strong>
-                <small>{tr("自动制作会先完成本轮初翻，汇总译名分歧，再由同一文字模型校对；不另设付费词表整理阶段。")}</small>
+                <small>{tr("初翻完成后，使用文字模型校对译文、人物称呼和译名。")}</small>
               </div>
               <input
                 type="checkbox"
@@ -273,8 +271,8 @@ export default function SettingsPage({
             </label>
             <label className="toggle-line">
               <div>
-                <strong>{tr("遇到局部失败时暂停")}</strong>
-                <small>{tr("开启后，个别任务重试失败会暂停制作；关闭时保留该条当前文字或原图，继续处理其余内容。")}</small>
+                <strong>{tr("个别任务失败时暂停")}</strong>
+                <small>{tr("个别任务重试后仍失败时暂停；关闭后保留当前文字或原图，继续其他任务。")}</small>
               </div>
               <input
                 type="checkbox"
@@ -291,7 +289,7 @@ export default function SettingsPage({
             <label className="toggle-line">
               <div>
                 <strong>{tr("处理图片文字")}</strong>
-                <small>{tr("识别可处理图片中的文字，再翻译并尝试写回。当前支持平整背景 PNG 的局部文字修改，其余图片保持原样。")}</small>
+                <small>{tr("支持平整背景 PNG 的局部文字翻译和回写；其他图片保持原样。")}</small>
               </div>
               <input
                 type="checkbox"
@@ -308,9 +306,8 @@ export default function SettingsPage({
           <div className="panel-heading">
             <div>
               <h2>{tr("游戏字体")}</h2>
-              <p>{tr("所选字体用于生成汉化成品。选择下方字形预览，或使用自己的字体文件。")}</p>
+              <p>{tr("成品将使用所选字体，也可选择自己的 TTF/OTF 文件。")}</p>
             </div>
-            <span className="tag gold">{tr("内置开源字体")}</span>
           </div>
           <style>{fonts.map(font => `@font-face {font-family: "PinhaoPreview-${font.id}"; src: url(${JSON.stringify(font.previewUrl)}); font-weight: 400; font-style: normal; font-display: swap;}`).join('\n')}</style>
           <fieldset className="font-choices">
@@ -323,7 +320,6 @@ export default function SettingsPage({
                     onChange={() => { setCustomFont(false); update({ ...draft, fontPath: font.path }); }} />
                 </div>
                 <div className="font-preview" aria-label={tr("中文字形预览")} style={{ fontFamily: `"PinhaoPreview-${font.id}"` }}>山河入梦<br />故事新生</div>
-                <p>{uiMessage(font.description)}</p>
                 {font.id === 'kai' && <span className="font-default">{tr("默认字体")}</span>}
               </label>
             ))}
@@ -336,10 +332,10 @@ export default function SettingsPage({
           </div>
           {customFont && <PathField label={tr("自选字体文件")} kind="font" value={draft.fontPath}
             onChange={fontPath => update({ ...draft, fontPath })} placeholder={tr("选择 TTF 或 OTF 字体")} onError={onError} />}
-          <p className="font-license-note">{tr("思源宋体、思源黑体与霞鹜文楷均采用 SIL Open Font License（开源字体许可）。制作时附带所选内置字体的许可证。")}</p>
+          <p className="font-license-note">{tr("内置字体采用 SIL Open Font License，许可证随成品提供。")}</p>
         </section>
         <div className="settings-bottom">
-          <span>{dirty ? tr("点击“保存设置”应用本次修改") : tr("当前设置已保存")}</span>
+          <span>{dirty ? tr("设置修改尚未保存") : tr("当前设置已保存")}</span>
           <Button
             type="submit"
             variant="primary"
@@ -379,7 +375,7 @@ function ConnectionFields({
           }
           placeholder="https://api.example.com/v1"
         />
-        <small>{tr("填写服务商提供的 API 基础地址，通常以 /v1 结尾。")}</small>
+        <small>{tr("使用服务商提供的 API 基础地址。")}</small>
       </label>
       <label className="field">
         <span>{tr("模型名称")}</span>
@@ -430,7 +426,7 @@ function ConnectionFields({
       </label>
       <details className="advanced" style={{ gridColumn: "1 / -1" }}>
         <summary>{tr("模型容量")}</summary>
-        <p className="muted">{tr("技术、翻译与校对请求使用此容量。留空时使用 32,768 上下文、单次回复至多 4,096 的程序默认值；这不是自动识别。按服务商规格填写，可使用模型实际支持的容量。")}</p>
+        <p className="muted">{tr("留空默认：上下文 32,768 tokens，单次回复 4,096 tokens。修改时填写服务商给出的容量。")}</p>
         <div className="settings-grid">
           <label className="field">
             <span>{tr("上下文容量（tokens）")}</span>
@@ -438,7 +434,7 @@ function ConnectionFields({
               aria-label={tr`${label}上下文容量`} placeholder={tr("程序默认")}
               value={value.contextWindow ?? ""}
               onChange={event => onChange({ ...value, contextWindow: event.target.value === "" ? undefined : Number(event.target.value) })} />
-            <small>{tr("模型单次能处理的原文、历史和回复总量。")}</small>
+            <small>{tr("每次请求中，输入、历史和回复的合计上限。")}</small>
           </label>
           <label className="field">
             <span>{tr("最大回复长度（tokens）")}</span>
@@ -446,7 +442,7 @@ function ConnectionFields({
               aria-label={tr`${label}最大回复长度`} placeholder={tr("程序默认")}
               value={value.maxOutputTokens ?? ""}
               onChange={event => onChange({ ...value, maxOutputTokens: event.target.value === "" ? undefined : Number(event.target.value) })} />
-            <small>{tr("按该模型支持的最大输出填写，不是累计使用额度。")}</small>
+            <small>{tr("单次回复的上限，按模型支持的输出容量填写。")}</small>
           </label>
         </div>
       </details>

@@ -130,7 +130,7 @@ export default function AssistExploration({
             <span className="tag">{tr("当前地点")}</span>
           </div>
         ) : (
-          <p className="muted">{tr("从工作台重新启动成品，再进入游戏地图，这里会显示角色位置与移动设置。")}</p>
+          <p className="muted">{tr("从工作台启动成品并进入地图后，显示角色位置与移动设置。")}</p>
         )}
         {movement && (
           <div className="assist-exploration-controls">
@@ -201,7 +201,7 @@ export default function AssistExploration({
             )}
           </div>
         )}
-        <p className="assist-hint muted">{tr("修改立即生效。“恢复移动设置”会还原本次辅助调整前的穿墙、移动速度与随机遇敌设置；游戏后续改动的设置继续保留。")}</p>
+        <p className="assist-hint muted">{tr("修改立即生效。“恢复移动设置”还原本次辅助改过的设置，保留游戏随后改过的值。")}</p>
       </section>
       {error && (
         <div className="banner error" role="alert">
@@ -215,7 +215,7 @@ export default function AssistExploration({
               <h2>{tr("向指定方向跳跃")}</h2>
               <span className="tag">{tr("以格为单位")}</span>
             </div>
-            <p className="assist-section-intro">{tr("以当前地点为起点，横向与纵向各跳过指定格数。")}</p>
+            <p className="assist-section-intro">{tr("从当前位置按横向、纵向格数跳跃。")}</p>
             <form
               onSubmit={(event) => {
                 event.preventDefault();
@@ -261,7 +261,7 @@ export default function AssistExploration({
                   />
                 </label>
               </div>
-              <p className="assist-hint muted">{tr("横向：向左填负数，向右填正数。纵向：向上填负数，向下填正数。每次各填 -20 到 20 格。")}</p>
+              <p className="assist-hint muted">{tr("左、上填负数，右、下填正数；每个方向限 -20 到 20 格。")}</p>
               <Button
                 type="submit"
                 disabled={
@@ -377,7 +377,7 @@ export default function AssistExploration({
                 disabled={busy || !selectedMap || !movement?.canTransfer}
               >{tr("下一步：确认传送")}</Button>
               {movement && !movement.canTransfer && (
-                <p className="assist-hint muted">{tr("先结束对话或战斗，回到可自由行走的地图后，再执行跳跃或传送。")}</p>
+                <p className="assist-hint muted">{tr("结束对话或战斗，回到可行走的地图后再跳跃或传送。")}</p>
               )}
             </form>
           </section>
@@ -389,7 +389,7 @@ export default function AssistExploration({
           onClose={() => setDestination(null)}
           busy={busy}
         >
-          <p className="dialog-intro">{tr("前往 ")}{destination.map.name} · X {destination.x} / Y {destination.y}{tr("。确认后立即传送；跨地图时会离开当前场景。")}</p>
+          <p className="dialog-intro">{tr("前往 ")}{destination.map.name} · X {destination.x} / Y {destination.y}{tr("。确认后立即传送，跨地图会离开当前场景。")}</p>
           <div className="dialog-actions">
             <Button disabled={busy} onClick={() => setDestination(null)}>{tr("取消")}</Button>
             <Button

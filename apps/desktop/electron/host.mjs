@@ -112,7 +112,7 @@ export function productWorker(options) {
         assist = input.assistEnabled === false
           ? { supported: false, status: 'disabled', detail: '实时辅助已关闭，未安装辅助插件' }
           : await (options.assistInstaller ?? installAssistPlugin)(result.outputDir, { worker });
-        if (assist.status === 'install_failed' && assist.restored !== true) throw Object.assign(new Error('辅助安装未完成且无法确认原文件已恢复，请先处理安装恢复记录'), { code: 'ASSIST_INSTALL_RECOVERY_REQUIRED' });
+        if (assist.status === 'install_failed' && assist.restored !== true) throw Object.assign(new Error('辅助安装失败，原文件恢复状态未确认。请保留恢复记录，暂勿启动成品。'), { code: 'ASSIST_INSTALL_RECOVERY_REQUIRED' });
       } catch (error) {
         error.hostFailure = true;
         throw error;

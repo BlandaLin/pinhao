@@ -13,7 +13,7 @@ export default function AssistSaveBackupDialog({ data, busy, onClose, onRestore 
   const backup = data.backups.find(item => item.id === selected);
   return <Modal title={tr("恢复存档备份")} busy={busy} onClose={onClose}>
     <p className="dialog-intro">{tr("恢复目标：")}{backup?.filePath || tr('先选择一份可用备份')}</p>
-    <p className="dialog-intro">{tr("恢复到这份备份原来绑定的存档位置。目标存在时先保留原始文件，目标不存在时重新创建；请先关闭游戏，恢复后在游戏中读档。")}</p>
+    <p className="dialog-intro">{tr("请先关闭游戏。备份会恢复到原存档位置：已有文件先备份，缺失文件重新创建。恢复后在游戏中读档。")}</p>
     {data.backups.length ? <label className="field">
       <span>{tr("选择备份时间")}</span>
       <select value={selected} disabled={busy} onChange={event => setSelected(event.target.value)}>
@@ -21,7 +21,7 @@ export default function AssistSaveBackupDialog({ data, busy, onClose, onRestore 
           {backup.createdAt ? new Date(backup.createdAt).toLocaleString(uiLocale) : tr('时间未知')} · {backup.bytes?.toLocaleString(uiLocale) ?? '?'}{tr(" 字节 · ")}{backup.id.slice(0, 8)}{backup.status !== 'available' ? tr(' · 不可用') : ''}
         </option>)}
       </select>
-    </label> : <p className="dialog-intro">{tr("当前项目与成品还没有可核对来源的备份。")}</p>}
+    </label> : <p className="dialog-intro">{tr("当前工程还没有可恢复的存档备份。")}</p>}
     {data.backups.filter(item => item.status === 'unavailable').map(item => <p key={item.id} className="dialog-intro">{tr`不可用记录 ${item.id.slice(0, 8)}：${uiMessage(item.error) || tr('未通过备份核验')}`}</p>)}
     <div className="dialog-actions">
       <Button disabled={busy} onClick={onClose}>{tr("取消")}</Button>

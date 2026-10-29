@@ -34,7 +34,7 @@ test('no selectable pending candidates means no model call, including already co
     const scan = await f.manager.scan({ projectId: 'p', analyze: true });
     assert.equal(f.calls(), 0);
     assert.equal(f.connections(), 0);
-    assert.match(scan.analysisNotice, /没有.*候选/);
+    assert.match(scan.analysisNotice, /分析.*条件|条件.*分析/);
   }
 });
 

@@ -67,7 +67,7 @@ export async function runSettingsFeedbackChecks() {
     ['settings describe post-translation review and the cost of testing a connection', async () => {
       await mount();
       const text = document.body.textContent || '';
-      assert(text.includes('先完成本轮初翻') && text.includes('汇总译名分歧') && text.includes('同一文字模型校对'), 'The displayed preference must describe the actual initial-translation and shared-model review order');
+      assert(text.includes('初翻完成后') && text.includes('文字模型校对译文、人物称呼和译名') && text.includes('翻译与校对共用文字模型'), 'The displayed preference must describe the actual initial-translation and shared-model review order');
       assert(text.includes('连接测试会发送一条简短的模型请求') && text.includes('费用按服务商规则计算'), 'The cost of a connection test must be visible before invoking it');
     }],
     ['reasoning defaults to the recommended model setting without redundant helper text', async () => {
@@ -126,7 +126,7 @@ export async function runSettingsFeedbackChecks() {
     }],
     ['provider reservation capacity explains waiting rather than exhausted credit', async () => {
       const text = errorMessage({ message: 'Temporary reservation limit.', statusCode: 402, category: 'provider_capacity' });
-      assert(text.includes('在途请求预算') && text.includes('等待') && text.includes('请求完成'), 'A structured provider-capacity failure must explain the temporary in-flight request budget');
+      assert(text.includes('处理容量已满') && text.includes('等待') && text.includes('请求结束'), 'A structured provider-capacity failure must explain waiting for in-flight requests');
       assert(!text.includes('余额'), 'An in-flight request budget must not be presented as insufficient account credit');
     }],
     ['error formatting uses status and category while retaining message-only diagnostics', async () => {
@@ -136,7 +136,7 @@ export async function runSettingsFeedbackChecks() {
       const rate = errorMessage({ message: 'Slow.', category: 'rate_limit', retryAfterMs: 2500 });
       assert(rate.includes('3') && rate.includes('秒'), 'A structured retry delay must be rounded up for user guidance');
       assert(errorMessage({ message: 'Slow.', category: 'timeout' }).includes('超时'), 'Timeout classification must be actionable without matching prose');
-      assert(errorMessage(new Error('fetch failed')).includes('连接服务失败'), 'Existing message-only network fallback must stay intact');
+      assert(errorMessage(new Error('fetch failed')).includes('连接模型服务失败'), 'Existing message-only network fallback must stay intact');
       assert(errorMessage('neutral local detail') === 'neutral local detail', 'Unknown local diagnostic text must remain available');
     }],
   ];

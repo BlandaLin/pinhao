@@ -156,6 +156,12 @@ async function type(value: string) {
   editor().dispatchEvent(new Event("input", { bubbles: true }));
   await wait();
 }
+async function typeNotes(value: string) {
+  const notes = document.querySelector<HTMLTextAreaElement>('[aria-label="译者备注"]')!;
+  Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")!.set!.call(notes, value);
+  notes.dispatchEvent(new Event("input", { bubbles: true }));
+  await wait();
+}
 function click(text: string) {
   const button = [...document.querySelectorAll("button")].find(
     (item) => item.textContent?.trim() === text,
@@ -234,12 +240,12 @@ export async function runEditorChecks() {
         await until(() => saveInputs.length === 1);
         if (saveInputs[0].action !== 'save' || saveInputs[0].translation !== 'A') throw new Error('Notes-only save must not imply confirmation');
         await finish();
-        if (!notice.includes('未自动标记为已校对')) throw new Error('Saving notice must not claim proofreading');
+        if (!notice.includes('译文与备注已保存') || notice.includes('已校对') || notice.includes('校对已完成')) throw new Error('Saving notice must not claim proofreading');
         click('确认此条已核对');
         await until(() => saveInputs.length === 2);
         if (saveInputs[1].action !== 'confirm') throw new Error('Human approval needs an explicit action');
         pending!();
-        await until(() => notice.includes('明确确认'));
+        await until(() => notice.includes('此条已确认'));
       },
     ],
     [
@@ -500,7 +506,7 @@ export async function runEditorChecks() {
         render({ ...project, textVersion: 2 });
         await until(() => document.querySelector('.unit-item small')?.textContent === '已审阅 · 需再核对');
         const text = document.querySelector('.editor-topline')?.textContent || '';
-        if (!text.includes('当前译文已保留') || !text.includes('手动修改') || !text.includes('制作总览') || !text.includes('定向重审疑点'))
+        if (editor().value !== currentRows[0].translation || !text.includes('疑点') || !text.includes('修改后确认') || !text.includes('总览重审疑点'))
           throw new Error('An unresolved review must say what is retained and where to act next');
       },
     ],
@@ -661,14 +667,15 @@ export async function runEditorChecks() {
       async () => {
         await mount();
         await type("B");
+        await typeNotes("Unsaved note");
         document.querySelectorAll<HTMLButtonElement>(".unit-item")[1].click();
         await wait();
         const dialog = document.querySelector("dialog")?.textContent || "";
-        if (!dialog.includes("译文或备注") || !dialog.includes("丢弃本次修改"))
+        if (!dialog.includes("修改未保存") || !dialog.includes("切换将丢弃修改"))
           throw new Error("The switch prompt must explain what will be discarded");
         click("继续编辑");
         await wait();
-        if (editor().value !== "B")
+        if (editor().value !== "B" || document.querySelector<HTMLTextAreaElement>('[aria-label="译者备注"]')?.value !== "Unsaved note")
           throw new Error("Continuing must retain the pending draft");
       },
     ],
@@ -677,14 +684,15 @@ export async function runEditorChecks() {
       async () => {
         await mount();
         await type("B");
+        await typeNotes("Unsaved note");
         click("读取已保存版本");
         await wait();
         const dialog = document.querySelector("dialog")?.textContent || "";
-        if (!dialog.includes("译文和备注") || !dialog.includes("本次待保存的修改会被丢弃"))
+        if (!dialog.includes("最新译文与备注") || !dialog.includes("丢弃当前未保存的修改"))
           throw new Error("The reload prompt must identify both replaced fields");
         click("继续编辑");
         await wait();
-        if (editor().value !== "B")
+        if (editor().value !== "B" || document.querySelector<HTMLTextAreaElement>('[aria-label="译者备注"]')?.value !== "Unsaved note")
           throw new Error("Canceling a reload must retain the pending draft");
       },
     ],
@@ -695,7 +703,7 @@ export async function runEditorChecks() {
         click("导出文字工作包");
         await wait();
         const dialog = document.querySelector("dialog")?.textContent || "";
-        for (const text of ["导出 ZIP 文件", "原文、已有译文、上下文", "JSON（按字段填写译文和备注）", "纯文字（在文本文件中填写译文）"])
+        for (const text of ["ZIP", "原文、译文和上下文", "JSON（按字段填写译文和备注）", "纯文字（在文本文件中填写译文）"])
           if (!dialog.includes(text))
             throw new Error("Missing export instruction: " + text);
       },
@@ -730,7 +738,7 @@ export async function runEditorChecks() {
         click("校验并导入");
         await until(() => document.querySelector(".import-result"));
         const result = document.querySelector(".import-result")?.textContent || "";
-        for (const text of ["整包暂不导入", "当前项目保持原样", "统一修改后重新导入", "导出时的译文", "项目当前译文", "工作包内的新译文"])
+        for (const text of ["工作包未导入", "项目未改动", "统一修改后重新导入", "导出时的译文", "项目当前译文", "工作包内的新译文"])
           if (!result.includes(text))
             throw new Error("Missing conflict instruction: " + text);
         if (!notice.includes("整包暂不导入"))

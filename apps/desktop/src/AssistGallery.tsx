@@ -121,7 +121,7 @@ export default function AssistGallery({
       setSelected([]);
       setConfirming(null);
       setNotice(
-        uiMessage(result.analysisNotice) || tr`扫描完成，可应用的解锁方案共 ${result.recipes.filter((recipe) => recipe.confidence === "confirmed").length} 项。`,
+        uiMessage(result.analysisNotice) || tr`扫描完成，找到 ${result.recipes.filter((recipe) => recipe.confidence === "confirmed").length} 项可用方案。`,
       );
     } catch (failure) {
       if (!mounted.current || currentProject.current !== activeProject) return;
@@ -149,7 +149,7 @@ export default function AssistGallery({
       return;
     }
     if (!connected) {
-      setError(tr("请从工作台启动成品，开始新游戏或读档后，再应用方案或恢复原值。"));
+      setError(tr("先从工作台启动成品并进入游戏，再应用方案或恢复原值。"));
       return;
     }
     if (confirming.kind === "apply" && confirming.gameSessionId !== state.gameSessionId) {
@@ -161,7 +161,7 @@ export default function AssistGallery({
       confirming.kind === "restore" &&
       !canRestoreRecollection(confirming.backup, state)
     ) {
-      setError(tr("恢复需要保持创建备份时的这次游玩。当前进度请重新应用解锁方案，使用新的恢复记录。"));
+      setError(tr("这份备份只适用于创建它时的那次游玩。当前进度需使用本次游玩的备份。"));
       return;
     }
     const activeProject = projectId;
@@ -188,9 +188,9 @@ export default function AssistGallery({
       ]);
       setNotice(
         confirming.kind === "apply"
-          ? tr`已应用 ${result.backup.labels.length} 项解锁方案。修改前的数据已保存在“备份与恢复”。当前存档的改动请在游戏内存档后保留。`
+          ? tr`已应用 ${result.backup.labels.length} 项方案，原值已存入“备份与恢复”。剧情进度的改动请在游戏内存档。`
           : result.state.recollectionResult?.skipped
-            ? tr`已恢复 ${result.state.recollectionResult.restored ?? 0} 项原值。另 ${result.state.recollectionResult.skipped} 项已被后续操作改动，继续保留当前值。`
+            ? tr`已恢复 ${result.state.recollectionResult.restored ?? 0} 项原值；另 ${result.state.recollectionResult.skipped} 项后来又被修改，保留当前值。`
             : tr("修改前的数据已恢复到当前游戏。"),
       );
       setConfirming(null);
@@ -219,7 +219,7 @@ export default function AssistGallery({
             <Image size={18} />{tr("回想与图鉴")}</h2>
           <span className="tag">{tr("扫描并选择解锁方案")}</span>
         </div>
-        <p className="assist-section-intro">{tr("先扫描回想入口与解锁条件，再选择要开放的条目。每次应用前都会备份相关数据的原值。")}</p>
+        <p className="assist-section-intro">{tr("扫描后选择要解锁的条目。应用前自动备份相关数据。")}</p>
         <div className="button-row assist-gallery-toolbar">
           <Button
             variant="primary"
@@ -235,8 +235,8 @@ export default function AssistGallery({
           >
             <Sparkles size={16} />{tr("AI 分析解锁条件")}</Button>
         </div>
-        <p className="assist-hint muted">{tr("“扫描解锁条件”在本机读取游戏内容。“AI 分析解锁条件”会调用设置中的技术模型，进一步核对解锁条件。")}{!pendingAnalysis && tr("当前没有可供本轮 AI 审核的候选，不会调用模型。请先扫描并查看未提取或阻塞原因。")}
-          {scan && !scanCurrent && tr("这份历史记录缺少分析规则身份，请重新扫描；旧确认不能继续应用。")}
+        <p className="assist-hint muted">{tr("扫描在本机完成；AI 分析会把相关游戏内容发送给技术模型，并按服务商规则计费。")}{!pendingAnalysis && tr("当前没有可交给 AI 分析的条件。请先扫描，再查看下方扫描提示。")}
+          {scan && !scanCurrent && tr("扫描记录需要更新，请重新扫描后再应用方案。")}
         </p>
         {busy === "load" && (
           <p className="assist-hint muted" role="status">{tr("正在读取本地扫描记录与备份…")}</p>
@@ -315,7 +315,7 @@ export default function AssistGallery({
             >{tr("应用已选 ")}{chosen.length}{tr(" 项")}</Button>
           </div>
           {!connected && (
-            <p className="assist-hint muted">{tr("从工作台启动成品，开始新游戏或读档后，再应用方案或恢复原值。")}</p>
+            <p className="assist-hint muted">{tr("从工作台启动成品并进入游戏后，再应用方案或恢复原值。")}</p>
           )}
           <div className="assist-recipes">
             {visibleRecipes.map((recipe) => (
@@ -357,8 +357,8 @@ export default function AssistGallery({
           {visibleRecipes.length === 0 && (
             <p className="assist-section-intro">
               {search
-                ? tr("匹配 0 项。更换条目名称或适用范围后重新搜索。")
-                : pendingAnalysis ? tr("本轮扫描没有可应用方案，可审核已有候选。") : tr("本轮没有可供审核的解锁候选，请查看扫描问题和能力范围。")}
+                ? tr("没有匹配的方案，请换个名称或适用范围。")
+                : pendingAnalysis ? tr("尚无可应用方案，可用 AI 分析下方待确认的条件。") : tr("未找到可分析的解锁条件，请查看扫描提示。")}
             </p>
           )}
           {unassignedCandidates.length > 0 && (
@@ -393,7 +393,7 @@ export default function AssistGallery({
           <span className="tag">{backups.length}{tr(" 条记录")}</span>
         </div>
         {backups.length === 0 ? (
-          <p className="assist-section-intro">{tr("应用解锁方案后，这里会保存修改前的数据和条目名称。请在读档、开始新游戏或关闭游戏前恢复原值。")}</p>
+          <p className="assist-section-intro">{tr("应用方案后，原值和条目名称保存在这里。需要还原时，请在读档、新开游戏或关闭游戏前恢复。")}</p>
         ) : (
           <div>
             {backups.map((backup) => (
@@ -407,7 +407,7 @@ export default function AssistGallery({
                   {backup.error && <p>{uiMessage(backup.error)}</p>}
                   {backup.status !== "restored" &&
                     !canRestoreRecollection(backup, state) && (
-                      <small>{tr("恢复需要保持创建备份时的这次游玩。读档、开始新游戏或重启游戏后，请使用新创建的记录。")}</small>
+                      <small>{tr("这份记录只适用于创建备份时的那次游玩，不能跨读档、新游戏或重启恢复。")}</small>
                     )}
                 </div>
                 <Button
@@ -438,10 +438,10 @@ export default function AssistGallery({
           error={error}
         >
           {confirming.kind === "analyze" ? (
-            <p className="dialog-intro">{tr("将本项目的解锁条件及相关游戏内容交给设置中的技术模型分析。分析完成后，在下方选择要应用的解锁方案。")}</p>
+            <p className="dialog-intro">{tr("将解锁条件和相关游戏内容发送给技术模型，按服务商规则计费。分析后由你选择是否应用。")}</p>
           ) : confirming.kind === "apply" ? (
             <>
-              <p className="dialog-intro">{tr("先备份相关数据的原值，再立即应用下列解锁方案。适用范围逐项列出；当前存档的改动需要在游戏内存档后保留。")}</p>
+              <p className="dialog-intro">{tr("确认后先备份原值，再立即应用所选方案。各项范围见下方；剧情进度的改动请在游戏内存档。")}</p>
               <ul className="assist-confirm-list">
                 {confirming.recipes.map((recipe) => (
                   <li key={recipe.id}>
@@ -453,7 +453,7 @@ export default function AssistGallery({
             </>
           ) : (
             <>
-              <p className="dialog-intro">{tr("将下列条目涉及的数据恢复到应用前的值。应用后又被其他操作改动的数据，会继续保留当前值。")}</p>
+              <p className="dialog-intro">{tr("还原下列条目应用前的值；后来又被修改的数据保持当前值。")}</p>
               <ul className="assist-confirm-list">
                 {confirming.backup.labels.map((label, index) => (
                   <li key={index}>{label}</li>
@@ -494,7 +494,7 @@ export default function AssistGallery({
 function Evidence({ evidence }: { evidence: RecollectionEvidence[] }) {
   return (
     <details className="assist-evidence">
-      <summary>{tr`查看对应的游戏内容（${evidence.length}）`}</summary>
+      <summary>{tr`查看相关游戏内容（${evidence.length}）`}</summary>
       {evidence.map((item, index) => (
         <div key={index}>
           <small>

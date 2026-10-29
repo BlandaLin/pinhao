@@ -1,32 +1,33 @@
 name: Bug Report / 问题反馈
-description: Report an error, missing text, layout problem, or workflow issue.
+description: 报告报错、漏字、排版或制作问题 / Report errors, missing text, layout, or production problems.
 body:
   - type: markdown
     attributes:
       value: |
-        请先遮盖 API 密钥、账号和个人目录。提交最小复现步骤及相关截图或脱敏日志。
-        Redact API keys, accounts, and personal paths. Share minimal reproduction steps and sanitized evidence.
+        请描述出错前的操作，并附相关截图或日志片段。发出前遮盖密钥、账号和个人目录，不要上传完整游戏或私人工程。
+        Describe the steps leading to the problem and attach relevant screenshots or log excerpts. Redact keys, accounts, and personal paths. Keep full games and private projects out of public reports.
   - type: input
     id: version
     attributes:
       label: Software Version / 软件版本
-      placeholder: '0.5.8, Windows 11 x64'
+      description: 注明中英文版及 Windows 版本 / Include the Chinese or English edition and your Windows version.
+      placeholder: '0.5.8 English edition, Windows 11 x64'
     validations:
       required: true
   - type: input
     id: engine
     attributes:
       label: Game and Engine / 游戏与引擎
-      description: Include the game version and detected engine when relevant.
+      description: 填写游戏名称与版本，引擎不确定可留空 / Give the game title and version; leave the engine blank if unknown.
   - type: textarea
     id: steps
     attributes:
       label: Reproduction / 复现步骤
-      placeholder: Describe the actions, expected result, and actual result.
+      placeholder: 从哪一步出错？预期是什么，实际发生了什么？ / What steps led to the problem? What did you expect, and what happened?
     validations:
       required: true
   - type: textarea
     id: evidence
     attributes:
-      label: Evidence / 截图与脱敏日志
-      description: Share the relevant error and stage. Use neutral text or a minimal fixture where possible.
+      label: Screenshots and Logs / 截图与日志
+      description: 附错误提示；漏字请指出对白或菜单位置 / Include the error message. For missing text, identify the dialogue or menu.
