@@ -47,7 +47,7 @@
 
 | 界面版本 | Windows 下载 | 新配置的默认翻译目标 |
 | --- | --- | --- |
-| 中文 | [拼好汉化-0.6.0-Windows-x64.zip](https://github.com/BlandaLin/pinhao/releases/download/v0.6.0/%E6%8B%BC%E5%A5%BD%E6%B1%89%E5%8C%96-0.6.0-Windows-x64.zip) | 简体中文 |
+| 中文 | [pinhao-0.6.0-Windows-x64.zip](https://github.com/BlandaLin/pinhao/releases/download/v0.6.0/pinhao-0.6.0-Windows-x64.zip) | 简体中文 |
 | English | [pinhao-0.6.0-en-Windows-x64.zip](https://github.com/BlandaLin/pinhao/releases/download/v0.6.0/pinhao-0.6.0-en-Windows-x64.zip) | 英语 |
 
 1. **完整解压，运行 `PinhaoWorkbench.exe`。** 软件可以放在任意可写目录，不要只取出 EXE。

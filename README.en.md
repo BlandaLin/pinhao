@@ -48,7 +48,7 @@ While localizing games, I ran into text that existing tools could not extract. T
 | Interface | Windows download | Default target for new settings |
 | --- | --- | --- |
 | English | [pinhao-0.6.0-en-Windows-x64.zip](https://github.com/BlandaLin/pinhao/releases/download/v0.6.0/pinhao-0.6.0-en-Windows-x64.zip) | English |
-| 中文 | [拼好汉化-0.6.0-Windows-x64.zip](https://github.com/BlandaLin/pinhao/releases/download/v0.6.0/%E6%8B%BC%E5%A5%BD%E6%B1%89%E5%8C%96-0.6.0-Windows-x64.zip) | Simplified Chinese |
+| 中文 | [pinhao-0.6.0-Windows-x64.zip](https://github.com/BlandaLin/pinhao/releases/download/v0.6.0/pinhao-0.6.0-Windows-x64.zip) | Simplified Chinese |
 
 1. **Extract the whole archive and run `PinhaoWorkbench.exe`.** Use any writable folder. Keep the other files beside the executable.
 2. **Connect a model in Settings.** Enter an OpenAI-compatible API endpoint, model name, and key; save and test the connection. Technical work and text work can use different models. Translation and proofreading share the text model. You can change the target language here.

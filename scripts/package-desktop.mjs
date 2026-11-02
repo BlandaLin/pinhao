@@ -220,7 +220,7 @@ for (const directory of paths) {
   }
   await rename(path.join(directory, 'resources/app/SOURCE-CODE.zip'), path.join(directory, 'SOURCE-CODE.zip'));
   if (!directoryOnly) {
-    archive = path.join(output, uiLanguage === 'en' ? `pinhao-${version}-en-Windows-x64.zip` : `拼好汉化-${version}-Windows-x64.zip`);
+    archive = path.join(output, uiLanguage === 'en' ? `pinhao-${version}-en-Windows-x64.zip` : `pinhao-${version}-Windows-x64.zip`);
     const zipped = await run(path.join(root, 'local/runtime/python/python.exe'), ['-B', path.join(root, 'scripts/portable-release.py'), directory, archive], { windowsHide: true, encoding: 'utf8', env: { ...process.env, PYTHONIOENCODING: 'utf-8' } });
     archives.push(JSON.parse(zipped.stdout));
   }
