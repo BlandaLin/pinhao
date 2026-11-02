@@ -195,7 +195,7 @@ class NativeWorkerTests(unittest.TestCase):
                 worker.copy_tree(source, output, {'excluded': []})
         self.assertEqual(error.exception.code, 'DISK_SPACE')
         self.assertIn('16', str(error.exception))
-        usage.assert_called_once_with(self.root)
+        usage.assert_called_once_with(worker.filesystem_path(self.root))
         self.assertFalse(output.exists())
 
     def test_copy_space_plan_uses_existing_private_and_archive_exclusions(self):

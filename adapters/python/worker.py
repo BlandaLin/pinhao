@@ -34,6 +34,7 @@ import asset_overlay
 import adapter_overlay
 import assist_catalog
 import mobile_export
+import rpgmaker_plugins
 import assist_legacy
 import assist_managed
 import archive_tools
@@ -42,6 +43,7 @@ import assist_install_rgss
 import font_inspection
 import private_paths
 import native_environment
+from native_attempt import filesystem_path
 from rgss_archive import archive_entries, destination, safe_relative, unpack
 from ruby_marshal import Reader, RString, long_bytes, structure
 
@@ -68,6 +70,7 @@ def path_arg(args, *keys):
 
 
 def linked(path):
+    path = filesystem_path(path)
     return path.is_symlink() or getattr(path, 'is_junction', lambda: False)()
 
 
@@ -92,15 +95,16 @@ def fresh(path, protected=()):
 
 def files_in(root):
     root = clean_path(root)
-    if not root.is_dir():
+    io_root = filesystem_path(root)
+    if not io_root.is_dir():
         raise WorkerError('DIRECTORY_MISSING', 'Directory does not exist')
     seen = set()
-    for base, dirs, files in os.walk(root, followlinks=False):
+    for base, dirs, files in os.walk(io_root, followlinks=False):
         for name in sorted(dirs + files):
             path = Path(base) / name
             if linked(path):
                 raise WorkerError('SYMLINK', 'Game/package contains a symbolic link or junction')
-            rel = path.relative_to(root).as_posix()
+            rel = path.relative_to(io_root).as_posix()
             folded = rel.casefold()
             if folded in seen:
                 raise WorkerError('PATH_COLLISION', 'Paths collide on Windows: ' + rel)
@@ -110,18 +114,20 @@ def files_in(root):
             path = Path(base) / name
             if not path.is_file():
                 raise WorkerError('SPECIAL_FILE', 'Only regular files are supported')
-            yield path.relative_to(root).as_posix(), path
+            relative = path.relative_to(io_root).as_posix()
+            yield relative, root / relative
 
 
 def digest_file(path):
     digest = hashlib.sha256()
-    with Path(path).open('rb') as stream:
+    with filesystem_path(path).open('rb') as stream:
         for chunk in iter(lambda: stream.read(1024 * 1024), b''):
             digest.update(chunk)
     return digest.hexdigest()
 
 
 def json_write(path, value):
+    path = filesystem_path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_bytes(native.serialized(value))
 
@@ -296,7 +302,7 @@ def extract(args):
                 target = destination(source, rel)
                 target.parent.mkdir(parents=True, exist_ok=True)
                 shutil.copyfile(path, target)
-    report = native.extract(source, work, batch_size=int(args.get('batchSize', 120)))
+    report = native.extract(source, work, batch_size=int(args.get('batchSize', 120)), embedded_text=args.get('embeddedText'))
     fingerprint = source_info(game, work, info, source)
     scripts = rgss_scripts.prepare(work, source, sys.modules[__name__])
     manifest, sheets = native.load_work(work)
@@ -437,7 +443,7 @@ def excluded(rel):
 def source_unchanged(game, metadata):
     for rel, expected in metadata['sourceFiles'].items():
         path = destination(game, rel)
-        if not path.is_file() or digest_file(path) != expected:
+        if not filesystem_path(path).is_file() or digest_file(path) != expected:
             raise WorkerError('SOURCE_CHANGED', 'Original native resources changed; extract a new revision: ' + rel)
 
 
@@ -472,7 +478,7 @@ def device_of(path):
     """Filesystem device of the nearest existing ancestor."""
     for candidate in (Path(path), *Path(path).parents):
         try:
-            return os.stat(candidate).st_dev
+            return os.stat(filesystem_path(candidate)).st_dev
         except OSError:
             continue
     return None
@@ -481,7 +487,7 @@ def device_of(path):
 def same_content(source, dest, source_info=None, dest_info=None):
     """True when dest already holds the source bytes, checked without writing."""
     try:
-        src, dst = source_info or os.stat(source), dest_info or os.stat(dest)
+        src, dst = source_info or os.stat(filesystem_path(source)), dest_info or os.stat(filesystem_path(dest))
     except OSError:
         return False
     if not stat.S_ISREG(dst.st_mode) or src.st_size != dst.st_size:
@@ -495,8 +501,8 @@ def require_copy_space(output, required_bytes):
     if required_bytes <= 0:
         return
     for directory in (Path(output), *Path(output).parents):
-        if directory.exists():
-            available = shutil.disk_usage(directory).free
+        if filesystem_path(directory).exists():
+            available = shutil.disk_usage(filesystem_path(directory)).free
             if required_bytes > available:
                 raise WorkerError('DISK_SPACE', f'复制游戏资源所需空间不足：需要约 {required_bytes:,} 字节，'
                                   f'当前可用 {available:,} 字节。请释放空间或选择其他成品位置：{output}')
@@ -526,9 +532,9 @@ def copy_tree(source, output, inventory, prefix='', omit_archives=False, omitted
             inventory['skipped'] += 1
             continue
         dest = destination(output, full)
-        source_info = path.stat()
+        source_info = filesystem_path(path).stat()
         try:
-            dest_info = dest.stat()
+            dest_info = filesystem_path(dest).stat()
         except FileNotFoundError:
             dest_info = None
         may_link = linking and full not in link_exclude and path.suffix.casefold() in LINKABLE_SUFFIXES
@@ -540,12 +546,13 @@ def copy_tree(source, output, inventory, prefix='', omit_archives=False, omitted
     require_copy_space(output, reserve_bytes + sum(size for _, _, _, size, may_link in planned if not may_link))
     remaining_bytes = reserve_bytes + sum(size for _, _, _, size, _ in planned)
     for index, path, dest, size, may_link in planned:
-        dest.parent.mkdir(parents=True, exist_ok=True)
+        input_path, output_path = filesystem_path(path), filesystem_path(dest)
+        output_path.parent.mkdir(parents=True, exist_ok=True)
         # Replacing the directory entry also breaks older shared hardlinks before any write.
-        dest.unlink(missing_ok=True)
+        output_path.unlink(missing_ok=True)
         if linking and may_link:
             try:
-                os.link(path, dest)
+                os.link(input_path, output_path)
                 inventory['linked'] += 1
                 remaining_bytes -= size
                 if progress is not None:
@@ -555,7 +562,7 @@ def copy_tree(source, output, inventory, prefix='', omit_archives=False, omitted
                 # Different volume, exFAT/FAT, or a filesystem without hard links.
                 linking = False
                 require_copy_space(output, remaining_bytes)
-        shutil.copyfile(path, dest)
+        shutil.copyfile(input_path, output_path)
         inventory['copied'] += 1
         remaining_bytes -= size
         if progress is not None:
@@ -575,10 +582,11 @@ def font_coverage(args):
     return {'family': parsed.family(), 'sha256': digest_file(font), **parsed.coverage(args.get('texts', []))}
 
 
-def name_mappings(work, build_dir):
-    manifest, _ = native.load_work(work)
+def name_mappings(work, build_dir, manifest=None, documents=None):
+    if manifest is None:
+        manifest, _ = native.load_work(work)
     mappings = {}
-    documents = {}
+    documents = {} if documents is None else documents
     for ident, unit in manifest['units'].items():
         if unit['kind'] not in ('database_name', 'database_nickname', 'database_profile', 'database_description'):
             continue
@@ -603,9 +611,58 @@ def name_mappings(work, build_dir):
     return mappings
 
 
+def js_name_identity(manifest, documents, build_dir):
+    tables, types, blocked = {}, {}, set()
+    record_counts = {}
+    table_names = {'Actors', 'Classes', 'Skills', 'Items', 'Weapons', 'Armors', 'Enemies', 'States'}
+    type_fields = {'elements', 'skillTypes', 'weaponTypes', 'armorTypes', 'equipTypes'}
+    for unit in manifest['units'].values():
+        if len(unit['targets']) != 1:
+            continue
+        table, target = Path(unit['file']).stem, unit['targets'][0]
+        is_name = table in table_names and len(target) == 2 and target[1] == 'name'
+        is_type = table == 'System' and len(target) == 2 and target[0] in type_fields
+        if not is_name and not is_type:
+            continue
+        if unit['file'] not in documents:
+            documents[unit['file']] = native.parse_json((build_dir / unit['file']).read_bytes())
+        document = documents[unit['file']]
+        original = native.restore(unit['source'], unit)[0]
+        translated = native.at(document, target)
+        if original == translated:
+            continue
+        if is_name:
+            record = native.at(document, target[:1])
+            ident = record.get('id')
+            if not isinstance(ident, int) or isinstance(ident, bool) or ident < 1:
+                blocked.add(table)
+                continue
+            # Array position and record identity are different contracts; never guess one from the other.
+            if unit['file'] not in record_counts:
+                counts = {}
+                for row in document:
+                    key = row.get('id') if isinstance(row, dict) else None
+                    if isinstance(key, int) and not isinstance(key, bool):
+                        counts[key] = counts.get(key, 0) + 1
+                record_counts[unit['file']] = counts
+            if record_counts[unit['file']].get(ident) != 1:
+                blocked.add(table)
+                continue
+            tables.setdefault(table, {})[str(ident)] = {'source': original, 'target': translated}
+        else:
+            types.setdefault(target[0], {})[str(target[1])] = {'source': original, 'target': translated}
+    for table in blocked:
+        tables.pop(table, None)
+    return {'schema': 'pinhao-name-identity-1', 'tables': tables, 'types': types,
+            'blockedTables': sorted(blocked), 'enemyNativeVerified': False}
+
+
 def install_js_runtime(game_root, work, build_dir, font, inventory, args):
     template = Path(__file__).parent / 'templates' / 'localization.js'
-    config = {'font': None, 'names': name_mappings(work, build_dir), 'wrapMessages': args.get('wrapMessages', True)}
+    manifest, _ = native.load_work(work)
+    documents = {}
+    config = {'font': None, 'names': name_mappings(work, build_dir, manifest, documents), 'wrapMessages': args.get('wrapMessages', True)}
+    identity = js_name_identity(manifest, documents, build_dir)
     if font:
         family = font_family(font)
         suffix = font.suffix.lower()
@@ -614,27 +671,35 @@ def install_js_runtime(game_root, work, build_dir, font, inventory, args):
         shutil.copyfile(font, dest)
         config['font'] = {'family': family, 'file': 'PinHaoChinese' + suffix}
         inventory['font'] = {'family': family, 'file': dest.relative_to(game_root).as_posix(), 'sha256': digest_file(dest)}
-    if not config['font'] and not config['names'] and not config['wrapMessages']:
-        return
     plugins = game_root / 'js' / 'plugins.js'
     if not plugins.is_file():
         inventory['warnings'].append('plugins.js missing; font/name runtime was not installed')
         return
     script = template.read_text(encoding='utf-8').replace('__PINHAO_CONFIG__', json.dumps(config, ensure_ascii=False))
+    descriptor = {'name': 'PinHaoLocalization', 'status': True,
+                  'description': 'Chinese font, message layout and default-name display', 'parameters': {}}
+    try:
+        registered = rpgmaker_plugins.register_plugin(plugins.read_bytes().decode('utf-8'), descriptor)
+    except rpgmaker_plugins.PluginManifestError as error:
+        raise WorkerError('PLUGIN_MANIFEST', str(error)) from error
     runtime = game_root / 'js' / 'plugins' / 'PinHaoLocalization.js'
     runtime.parent.mkdir(parents=True, exist_ok=True)
     runtime.write_text(script, encoding='utf-8')
-    marker = '// PinHao localization runtime'
-    original = plugins.read_text(encoding='utf-8-sig')
-    if marker in original:
-        original = original[:original.index(marker)].rstrip() + '\n'
-    descriptor = json.dumps({'name': 'PinHaoLocalization', 'status': True,
-                             'description': 'Chinese font, message layout and default-name display', 'parameters': {}})
-    registration = ('$plugins = $plugins.filter(function(plugin) { return plugin.name !== "PinHaoLocalization"; });\n'
-                    '$plugins.push(' + descriptor + ');\n')
-    plugins.write_text(original + '\n' + marker + '\n' + registration, encoding='utf-8')
+    plugins.write_bytes(registered.encode('utf-8'))
     inventory['runtime'] = 'js/plugins/PinHaoLocalization.js'
     inventory['oldDefaultNames'] = sum(len(row) for row in config['names'].values())
+    identity_runtime = game_root / 'js' / 'plugins' / 'PinHaoNameIdentity.js'
+    identity_template = Path(__file__).parent / 'templates' / 'name_identity.js'
+    identity_runtime.write_text(identity_template.read_text(encoding='utf-8').replace('__PINHAO_IDENTITY_CONFIG__', json.dumps(identity)), encoding='utf-8')
+    try:
+        registered = rpgmaker_plugins.register_plugin(plugins.read_bytes().decode('utf-8'), {
+            'name': 'PinHaoNameIdentity', 'status': True, 'description': 'Original-name access for verified game logic', 'parameters': {}
+        }, first=True)
+    except rpgmaker_plugins.PluginManifestError as error:
+        raise WorkerError('PLUGIN_MANIFEST', str(error)) from error
+    plugins.write_bytes(registered.encode('utf-8'))
+    inventory['nameIdentity'] = {'schema': identity['schema'], 'blockedTables': identity['blockedTables'],
+                               'mappedNames': sum(len(rows) for rows in identity['tables'].values()) + sum(len(rows) for rows in identity['types'].values())}
 
 
 def ruby_literal(value):
@@ -653,19 +718,7 @@ def ruby_literal(value):
 
 
 def patch_raw_strings(reader, replacements):
-    spans = [(value.start, value.end, long_bytes(len(replacements[value.index])) + replacements[value.index])
-             for value in reader.strings if value.index in replacements]
-    if len(spans) != len(replacements):
-        raise WorkerError('SCRIPT_SLOT', 'Native script slot was not found')
-    output, pos = [], 0
-    for start, end, replacement in sorted(spans):
-        output.extend((reader.raw[pos:start], replacement))
-        pos = end
-    output.append(reader.raw[pos:])
-    raw = b''.join(output)
-    if structure(Reader(raw).root) != structure(reader.root, replacements):
-        raise WorkerError('SCRIPT_STRUCTURE', 'Script container changed beyond the selected payload')
-    return raw
+    return reader.patch_raw(replacements)
 
 
 def install_rgss_runtime(game_root, work, build_dir, font, inventory):
@@ -976,15 +1029,16 @@ def dynamic_candidates(source, work):
 
 def zip_command(args):
     source = clean_path(path_arg(args, 'sourceDir'))
-    output = fresh(path_arg(args, 'filePath', 'outputPath'), (source,))
+    output = path_arg(args, 'filePath', 'outputPath')
+    fresh(filesystem_path(output), (filesystem_path(source),))
     entries = [(rel, path) for rel, path in files_in(source)
                if not (args.get('release') or args.get('excludeSaves')) or not excluded(rel)]
-    output.parent.mkdir(parents=True, exist_ok=True)
-    with zipfile.ZipFile(output, 'x', compression=zipfile.ZIP_DEFLATED, compresslevel=6, allowZip64=True) as archive:
+    filesystem_path(output.parent).mkdir(parents=True, exist_ok=True)
+    with zipfile.ZipFile(filesystem_path(output), 'x', compression=zipfile.ZIP_DEFLATED, compresslevel=6, allowZip64=True) as archive:
         for rel, path in entries:
             safe_member(rel)
-            archive.write(path, rel)
-    return {'filePath': str(output), 'files': len(entries), 'bytes': output.stat().st_size,
+            archive.write(filesystem_path(path), rel)
+    return {'filePath': str(output), 'files': len(entries), 'bytes': filesystem_path(output).stat().st_size,
             'sha256': digest_file(output)}
 
 
@@ -998,9 +1052,10 @@ def safe_member(name):
 
 def unzip_command(args):
     source = clean_path(path_arg(args, 'filePath', 'sourcePath'))
-    output = fresh(path_arg(args, 'outputDir', 'outDir'))
+    output = path_arg(args, 'outputDir', 'outDir')
+    fresh(filesystem_path(output))
     planned, seen = [], set()
-    with zipfile.ZipFile(source, 'r') as archive:
+    with zipfile.ZipFile(filesystem_path(source), 'r') as archive:
         for member in archive.infolist():
             name = member.filename.rstrip('/') if member.is_dir() else member.filename
             rel = safe_member(name)
@@ -1024,14 +1079,14 @@ def unzip_command(args):
             if requested - {rel for rel, member in planned if not member.is_dir()}:
                 raise WorkerError('ARCHIVE_MEMBER_MISSING', 'Requested ZIP member is missing')
             planned = [(rel, member) for rel, member in planned if rel in requested and not member.is_dir()]
-        output.mkdir(parents=True)
+        filesystem_path(output).mkdir(parents=True)
         for rel, member in planned:
             target = destination(output, rel)
             if member.is_dir():
-                target.mkdir(parents=True, exist_ok=True)
+                filesystem_path(target).mkdir(parents=True, exist_ok=True)
                 continue
-            target.parent.mkdir(parents=True, exist_ok=True)
-            with archive.open(member) as src, target.open('xb') as dest:
+            filesystem_path(target.parent).mkdir(parents=True, exist_ok=True)
+            with archive.open(member) as src, filesystem_path(target).open('xb') as dest:
                 shutil.copyfileobj(src, dest, length=1024 * 1024)
     return {'outputDir': str(output), 'files': sum(not item.is_dir() for _, item in planned)}
 

@@ -5,6 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { createDshToolBridge } from './dsh-tool-bridge.mjs';
 import { adaptationTools, finishAdaptationBusinessResult } from './adaptation.mjs';
+import { createEvidenceStore } from './adaptation/evidence.mjs';
 
 async function fixture(fn) {
   const directory = await mkdtemp(path.join(os.tmpdir(), 'pinhao-dsh-bridge-'));
@@ -95,6 +96,30 @@ test('a lost bridge completion is recovered from the original business terminal 
     assert.equal(recovered.status, 'reconciled');
     assert.equal(recovered.output.invocation, 1);
     assert.equal((await bridge.execute(envelope)).invocation, 1);
+    assert.equal(executions, 1);
+  } finally { await bridge.close(); }
+}));
+
+test('large saved bridge outputs are capacity-projected on both receipt recovery paths without rerunning', () => fixture(async options => {
+  let executions = 0;
+  options.connection = { contextWindow: 1048576, maxOutputTokens: 4096 };
+  options.lab.runTool = async () => ({ content: 'large saved neutral evidence\n'.repeat(4000), invocation: ++executions });
+  let bridge = await createDshToolBridge(options);
+  const envelope = await call(bridge);
+  await bridge.execute(envelope);
+  await bridge.close();
+  const largeSaved = await createEvidenceStore(options.workspaceDir).save({ content: 'large saved evidence\n'.repeat(4000) });
+  options.state.dshToolBridge.operations[envelope.operationId].outputEvidenceId = largeSaved.evidenceId;
+  options.connection = { contextWindow: 16384, maxOutputTokens: 4096 };
+  bridge = await createDshToolBridge(options);
+  try {
+    const saved = await bridge.reconcile(envelope.operationId);
+    assert.ok(JSON.stringify(saved.output).length <= 4096);
+    assert.equal(saved.output.nextCall?.tool, 'read_evidence');
+    delete options.state.dshToolBridge.operations[envelope.operationId].outputEvidenceId;
+    const terminal = await bridge.reconcile(envelope.operationId);
+    assert.ok(JSON.stringify(terminal.output).length <= 4096);
+    assert.ok(terminal.output.evidenceId);
     assert.equal(executions, 1);
   } finally { await bridge.close(); }
 }));

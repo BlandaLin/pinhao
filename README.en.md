@@ -11,17 +11,17 @@
 <p align="center"><a href="README.md">中文</a> · English</p>
 
 <p align="center">
-  <a href="https://github.com/BlandaLin/pinhao/releases/tag/v0.5.8-en.1"><strong>Download English</strong></a> ·
-  <a href="https://github.com/BlandaLin/pinhao/releases/tag/v0.5.8">中文版</a> ·
+  <a href="https://github.com/BlandaLin/pinhao/releases/tag/v0.6.0"><strong>Download English</strong></a> ·
+  <a href="https://github.com/BlandaLin/pinhao/releases/tag/v0.6.0">中文版</a> ·
   <a href="#get-started">Get started</a> ·
   <a href="https://github.com/BlandaLin/pinhao/issues">Report an issue</a>
 </p>
 
-<p align="center">0.5.8 Public Beta · Windows 10 / 11 x64 · Free software; bring your own model API</p>
+<p align="center">0.6.0 Public Beta · Windows 10 / 11 x64 · Free software; bring your own model API</p>
 
 ![Pinhao 0.5.8 English interface: project overview for The Lighthouse Letter](.github/media/overview-en.jpg)
 
-<p align="center"><sub>0.5.8 interface with an original sample project and prefilled translations.</sub></p>
+<p align="center"><sub>Screenshots show the 0.5.8 interface with an original sample project and prefilled translations. Changes in this release are listed below.</sub></p>
 
 ## From One Game to a Workbench
 
@@ -33,12 +33,22 @@ While localizing games, I ran into text that existing tools could not extract. T
 
 **Import → Extract → Translate and proofread → Build → Check in the game**
 
+## What's New in 0.6.0
+
+- **Short markers and plain-text replies.** Models no longer copy long IDs or wrap translation text in JSON. Proofreading returns corrections and a completion marker; the app keeps writeback locations.
+- **Less repeated input and rework.** Requests separate language context from engineering evidence and send shared background once. Complete, validated results survive interruptions; resumed work requests the remaining text.
+- **Consistent capacity handling.** Default capacity, compression reserves, and pre-send checks use the same limits. Large tool results stay available locally and are read in sections instead of repeatedly filling requests with inventories.
+- **Stronger native extraction and writeback.** CSV/TSV cell adapters, Unity language-column selection and verified text-reader patterns, plus static display-source tracing for MV, RGSS, and Godot. Archives support paged indexes and selected-member reads.
+- **More build checks.** MV/MZ components use static plugin registration. Recognized name-based logic keeps its original identity. JoiPlay exports check missing resources, filename case, and audio-format candidates.
+
+[Full changes and known issues](docs/release-notes/v0.6.0.md#english)
+
 ## Get Started
 
 | Interface | Windows download | Default target for new settings |
 | --- | --- | --- |
-| English | [pinhao-0.5.8-en-Windows-x64.zip](https://github.com/BlandaLin/pinhao/releases/download/v0.5.8-en.1/pinhao-0.5.8-en-Windows-x64.zip) | English |
-| 中文 | [pinhao-0.5.8-Windows-x64.zip](https://github.com/BlandaLin/pinhao/releases/download/v0.5.8/pinhao-0.5.8-Windows-x64.zip) | Simplified Chinese |
+| English | [pinhao-0.6.0-en-Windows-x64.zip](https://github.com/BlandaLin/pinhao/releases/download/v0.6.0/pinhao-0.6.0-en-Windows-x64.zip) | English |
+| 中文 | [拼好汉化-0.6.0-Windows-x64.zip](https://github.com/BlandaLin/pinhao/releases/download/v0.6.0/%E6%8B%BC%E5%A5%BD%E6%B1%89%E5%8C%96-0.6.0-Windows-x64.zip) | Simplified Chinese |
 
 1. **Extract the whole archive and run `PinhaoWorkbench.exe`.** Use any writable folder. Keep the other files beside the executable.
 2. **Connect a model in Settings.** Enter an OpenAI-compatible API endpoint, model name, and key; save and test the connection. Technical work and text work can use different models. Translation and proofreading share the text model. You can change the target language here.
@@ -68,9 +78,9 @@ See [native engine routes](docs/product/NATIVE_ENGINES.md) and [implementation r
 
 ## Translation, Proofreading, and the Text Workbench
 
-Translation requests carry complete text units and available scene, character, and terminology references. Scene proofreading follows the first translation pass; the final terminology check handles actual disagreements. There is no separate full-glossary preparation pass before translation.
+Translation requests carry complete text units and available scene, character, and terminology references. Requests and replies use short-marked plain-text blocks; engineering locations stay on your computer. Scene proofreading follows the first translation pass; the final terminology check handles actual disagreements. There is no separate full-glossary preparation pass before translation.
 
-Search source text and translations, filter by status, jump to a page, and inspect context. **Reviewed** means the scene review has been saved. **Proofreading complete** means the final checks and submission have finished. Paused projects continue from saved progress.
+Search source text and translations, filter by status, jump to a page, and inspect context. **Reviewed** means the scene review has been saved. **Proofreading complete** means the final checks and submission have finished. Complete, validated results survive interrupted replies and pauses. Unfinished text is not marked reviewed; resumed work requests what remains.
 
 ![Pinhao 0.5.8 English Text Workbench: source text, translation, and context](.github/media/text-workbench-en.jpg)
 
@@ -80,7 +90,7 @@ ZIP text packages carry source text, translations, and scene references for exte
 
 - Use Source Han Serif, Source Han Sans, LXGW WenKai, the game's font, or your own TTF / OTF.
 - Engine-specific play assistance includes characters, inventory, money, movement, switches, and variables. Gallery unlocks need the game's actual unlock conditions.
-- RPG Maker MV / MZ builds can export JoiPlay `.rga` packages for mobile play.
+- RPG Maker MV / MZ builds can export JoiPlay `.rga` packages with resource compatibility reports. Check actual play on the target device.
 - Optional image-text processing supports flat-background PNG regions.
 
 <details>
@@ -106,7 +116,7 @@ This version is in public beta. Complex plugins, encrypted resources, dynamic te
 
 Report issues in [GitHub Issues](https://github.com/BlandaLin/pinhao/issues) with the version, steps, error message, and relevant screenshots. For missing text, identify the dialogue or menu; for terminology, include a few lines of context. **Redact keys and personal information. Keep complete games, private projects, and saves out of public reports.**
 
-[0.5.8 changes and known issues](docs/release-notes/v0.5.8.md#known-issues) · [English edition](docs/release-notes/v0.5.8-en.1.md) · [Contributing](docs/CONTRIBUTING.md)
+[0.6.0 changes and known issues](docs/release-notes/v0.6.0.md#known-issues) · [Release notes](docs/release-notes/v0.6.0.md#english) · [Contributing](docs/CONTRIBUTING.md)
 
 ## Development
 

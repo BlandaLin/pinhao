@@ -35,6 +35,7 @@
   config:
     auto: true
     thresholdRatio: 0.75
+    headroomTokens: 4096
     retainRatio: 0.25
     maxTokens: 8192
     compactionRetries: 1

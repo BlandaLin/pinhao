@@ -31,7 +31,7 @@ def node_default(node):
     return False if node.m_Type == 'bool' else 0
 
 
-def fixture_nodes(extra=False):
+def fixture_nodes(extra=False, container=False):
     from UnityPy.helpers.Tpk import get_typetree_node
     from UnityPy.helpers.TypeTreeNode import TypeTreeNode
     def clone(node):
@@ -39,6 +39,8 @@ def fixture_nodes(extra=False):
                             [clone(child) for child in node.m_Children], m_TypeFlags=node.m_TypeFlags or 0,
                             m_Index=node.m_Index or 0, m_MetaFlag=node.m_MetaFlag or 0)
     result = {kind: clone(get_typetree_node(kind, (2019, 4, 40, 1))) for kind in (49, 128, 115, 114, 102)}
+    if container:
+        result[142] = clone(get_typetree_node(142, (2019, 4, 40, 1)))
     text = clone(result[49].m_Children[1])
     text.m_Name = 'm_Text'
     result[114].m_Children.append(text)
@@ -56,11 +58,11 @@ def fixture_nodes(extra=False):
     return result
 
 
-def unity_serialized(extra=False, zero_display=False, stripped=False, endian='<'):
+def unity_serialized(extra=False, zero_display=False, stripped=False, endian='<', container=False):
     adapter.unitypy()
     from UnityPy.helpers.TypeTreeHelper import write_typetree
     from UnityPy.streams import EndianBinaryWriter
-    nodes = fixture_nodes(extra)
+    nodes = fixture_nodes(extra, container=container)
     records = []
     def add(ident, kind, **fields):
         if zero_display:
@@ -85,6 +87,9 @@ def unity_serialized(extra=False, zero_display=False, stripped=False, endian='<'
     add(10, 102, m_Text='A signpost.', m_Font={'m_FileID': 0, 'm_PathID': 11})
     add(11, 128, m_Name='DynamicFixture', m_FontSize=0, m_FontData=list(b'neutral embedded font data'), m_FontNames=['Fixture Sans'])
     add(12, 128, m_Name='StaticFixture', m_FontSize=16, m_FontData=[], m_FontNames=['Fixture Bitmap'])
+    if container:
+        add(17, 142, m_Name='Fixture', m_Container=[('Assets/Resources/Neutral/Dialog.txt', {
+            'preloadIndex': 0, 'preloadSize': 0, 'asset': {'m_FileID': 0, 'm_PathID': 1}})])
     if extra:
         add(13, 115, m_Name='TextMeshProUGUI', m_ClassName='TextMeshProUGUI', m_Namespace='TMPro', m_AssemblyName='Unity.TextMeshPro.dll')
         add(14, 114, m_Name='TMPLabel', m_Script={'m_FileID': 0, 'm_PathID': 13}, m_text='TMP panel label', internalTarget='TMP_INTERNAL')

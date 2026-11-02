@@ -371,11 +371,42 @@ test('a 137-unit scene retains older page history with reading notes without con
   } finally { inspect.close(); }
 });
 
+test('compact terminology evidence can read beyond four pages through the normal review service', async t => {
+  const offsets = [], units = rows(170, 170).map((unit, index) => ({ ...unit, source: `Mina greets the traveler in room ${index}.` }));
+  const f = await fixture(t, { units, capacity: { maxOutputTokens: 900 }, provider: async ({ role, wire }) => {
+    const payload = wire.payload;
+    if (role === 'translation') return { records: payload.units.map(unit => ({ id: unit.id, translation: `米娜向旅人问好。${unit.source.match(/\d+/)[0]}` })) };
+    if (payload.reviewScope?.stage === 'scene') {
+      const replies = payload.evidenceResults?.filter(answer => answer.query?.term === 'Mina') ?? [];
+      const offset = replies.length ? replies.at(-1).nextOffset : 0;
+      if (offset !== null) {
+        offsets.push(offset);
+        return { readingNotes: 'The named traveler evidence is being read by exact cursor.',
+          evidenceRequests: [{ query: { term: 'Mina', offset, limit: 32 }, reason: '疑问' }] };
+      }
+    }
+    return review(payload);
+  } });
+  const project = await f.service.createProject({ gameDir: f.gameDir });
+  await f.service.startProject({ projectId: project.id });
+  await until(async () => { const value = await f.service.getProject({ projectId: project.id });
+    if (value.status === 'paused') throw new Error(`Unexpected term-reading pause: ${value.lastError}`);
+    return value.status === 'completed'; }, 'Term evidence did not complete its full cursor');
+  assert.deepEqual(offsets, [0, 32, 64, 96, 128, 160]);
+  const store = createStore(path.join(f.root, 'data'));
+  try {
+    const task = store.tasks(project.id).find(task => task.reviewStage === 'scene');
+    assert.equal(task.evidenceRounds ?? 0, 0, 'Cursor reading is not a repeated semantic failure');
+    assert.equal(new Set(task.evidenceReplies.flatMap(answer => answer.returnedIds)).size, 170);
+    assert.equal(store.units(project.id).every(unit => unit.status === 'proofread'), true);
+  } finally { store.close(); }
+});
+
 for (const strict of [false, true]) test(`a stalled reading batch follows local failure policy with strict=${strict} without repeating the stalled request`, async t => {
   let failingCalls = 0, siblingFinished = false, enterSibling;
   const siblingEntered = new Promise(resolve => { enterSibling = resolve; });
   // Fit one neutral scene, not two, so the native sample and delayed sibling use distinct requests.
-  const f = await fixture(t, { units: rows(48, 16), capacity: { maxOutputTokens: 1250 }, strict, provider: async ({ wire, signal }) => {
+  const f = await fixture(t, { units: rows(48, 16), capacity: { maxOutputTokens: 480 }, strict, provider: async ({ wire, signal }) => {
     const payload = wire.payload;
     if (payload.units.some(unit => unit.source === 'Neutral line 16.')) {
       failingCalls++; await siblingEntered;
@@ -579,7 +610,7 @@ test('137-target review resumes one scope after process restart and commits both
     }
     return review(payload);
   };
-  const f = await fixture(t, { units, provider }), project = await f.service.createProject({ gameDir: f.gameDir });
+  const f = await fixture(t, { units, provider, capacity: { maxOutputTokens: 1800 } }), project = await f.service.createProject({ gameDir: f.gameDir });
   await f.service.startProject({ projectId: project.id }); await until(() => gateEntered, 'The second transport page did not start');
   const inspect = createStore(path.join(f.root, 'data'));
   try {

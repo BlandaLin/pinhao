@@ -17,6 +17,20 @@ function owner(maxHttpAttempts = 2) {
 const response = () => new Response(JSON.stringify({ id: 'completion', model, choices: [{ message: { role: 'assistant', content: 'done' }, finish_reason: 'stop' }], usage: { prompt_tokens: 3, completion_tokens: 2, total_tokens: 5, cost: 0.001 } }), { headers: { 'content-type': 'application/json' } });
 const send = (relay, body = {}, token = relay.apiKey) => fetch(`${relay.baseUrl}/chat/completions`, { method: 'POST', headers: { 'content-type': 'application/json', authorization: `Bearer ${token}` }, body: JSON.stringify({ model, messages: [{ role: 'user', content: 'Investigate the source.' }], stream: false, ...body }) });
 
+test('SDK context-clamped output is rejected locally for compaction, never charged', async t => {
+  let sent = 0;
+  const relay = await createDshModelRelay({ connection, capacity: { maxTokens: 4096 },
+    fetchImpl: async () => { sent++; return response(); } });
+  t.after(() => relay.close());
+  const rejected = await send(relay, { max_tokens: 1 });
+  assert.equal(rejected.status, 400);
+  assert.equal((await rejected.json()).error.code, 'context_length_exceeded');
+  assert.equal(sent, 0);
+  assert.equal(relay.failure(), undefined);
+  assert.equal((await send(relay, { max_tokens: 4096 })).status, 200);
+  assert.equal(sent, 1);
+});
+
 test('actual loopback route preserves completion and host budget without exposing provider credentials', async t => {
   const directory = await mkdtemp(path.join(os.tmpdir(), 'pinhao-dsh-relay-'));
   t.after(() => rm(directory, { recursive: true, force: true, maxRetries: 4, retryDelay: 30 }));

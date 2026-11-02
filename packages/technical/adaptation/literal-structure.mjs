@@ -1,10 +1,11 @@
 import path from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
 import { parse } from 'acorn';
+import { verifyTable } from './table-format.mjs';
 
 const javascript = new Set(['.js', '.mjs', '.cjs']);
 const quoted = new Set(['.gd', '.rpy', '.py', '.tscn', '.tres', '.rb']);
-const plain = new Set(['.txt', '.csv', '.tsv']);
+const plain = new Set(['.txt']);
 const decoder = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true });
 const failure = file => new Error(`文字回写改变了代码结构或字符串边界：${file}；请使用可信格式校验器`);
 const bytes = value => Buffer.isBuffer(value) ? value : Buffer.from(value, 'utf8');
@@ -312,6 +313,10 @@ function verifyJson(before, after, units, translations, file) {
 export function verifyTextStructure({ file, before, after, units, translations = {} }) {
   before = bytes(before); after = bytes(after);
   const extension = path.extname(file).toLowerCase();
+  if (['.csv', '.tsv'].includes(extension)) {
+    verifyTable({ before, after, units, translations });
+    return { valid: true, format: 'table-cells' };
+  }
   if (extension === '.json') {
     verifyJson(before, after, units, translations, file);
     return { valid: true, format: 'json-pointer' };

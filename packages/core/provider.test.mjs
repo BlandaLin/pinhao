@@ -11,6 +11,8 @@ const wire = createTextWire({ task: 'translation', units, referenceOnly: [], glo
 const request = { system: 'Return the current short-reference text protocol.', prompt: wire.prompt, wire };
 const reviewWire = createTextWire({ task: 'proofreading', responseProtocol: REVIEW_PROTOCOL, units: units.slice(0, 1), referenceOnly: [], glossary: [] });
 const reviewRequest = { ...request, prompt: reviewWire.prompt, wire: reviewWire, responseProtocol: REVIEW_PROTOCOL };
+const plainResponse = (rows = [], auxiliary) => [...rows.map(([ref, text]) => `[${ref}]\n${text}`), '[完成]',
+  ...(auxiliary ? [`[附加信息]\n${JSON.stringify(auxiliary)}`] : [])].join('\n');
 
 test('only an explicit in-flight budget response receives temporary capacity classification and its actual Retry-After', () => {
   const body = { error: { code: 402, message: 'Current in-flight budget exceeded.', metadata: { reason: 'in_flight_budget_exhausted', headers: { 'Retry-After': '120' } } } };
@@ -60,7 +62,7 @@ test('OpenAI-compatible local endpoint accepts an empty key, trailing slash and 
     response.setHeader('x-request-id', 'neutral-json-request');
     response.end(JSON.stringify({
       id: 'local-model-fixture', object: 'chat.completion', created: 1, model: requestBody.model,
-      choices: [{ index: 0, message: { role: 'assistant', reasoning_content: 'Neutral reasoning.', content: '```json\n{"text":[["u1","开始游戏",""]]}\n```' }, finish_reason: 'stop' }],
+      choices: [{ index: 0, message: { role: 'assistant', reasoning_content: 'Neutral reasoning.', content: '```text\n[u1]\n开始游戏\n[完成]\n```' }, finish_reason: 'stop' }],
       usage: { prompt_tokens: 8, completion_tokens: 12, total_tokens: 20 },
     }));
   });
@@ -126,7 +128,7 @@ test('draining admission does not cancel an HTTP response that is already in fli
     received(); await hold;
     response.setHeader('Content-Type', 'application/json');
     response.end(JSON.stringify({ id: 'drain-http', object: 'chat.completion', created: 1, model: connection.model,
-      choices: [{ index: 0, message: { role: 'assistant', content: '{"text":[["u1","开始游戏",""]]}' }, finish_reason: 'stop' }],
+      choices: [{ index: 0, message: { role: 'assistant', content: plainResponse([['u1', '开始游戏']]) }, finish_reason: 'stop' }],
       usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 } }));
   });
   t.after(() => release());
@@ -159,7 +161,8 @@ test('streaming text checkpoints independently and optional term choices attach 
   const termWire = createTextWire({ task: 'translation', units: [{ id: 'name-canonical', source: 'Alice enters the Guild.' }], referenceOnly: [], glossary: [] });
   const { connection, requests } = await localEndpoint(t, async response => {
     response.writeHead(200, { 'Content-Type': 'text/event-stream' });
-    const parts = ['{"text":[["u1","爱丽丝走进公会。",""]]', ',"terms":[["u1","Alice","爱丽丝"],["u1","Guild","公会"],["unknown","Alice","爱丽丝"]]}'];
+    const parts = ['[u1]\n爱丽丝走进公会。\n[完成]\n', '[附加信息]\n' + JSON.stringify({
+      terms: [['u1', 'Alice', '爱丽丝'], ['u1', 'Guild', '公会'], ['unknown', 'Alice', '爱丽丝']] })];
     for (const content of parts) response.write(`data: ${JSON.stringify({ id: 'neutral-terms', choices: [{ index: 0, delta: { content }, finish_reason: null }] })}\n\n`);
     response.end(`data: ${JSON.stringify({ id: 'neutral-terms', choices: [{ index: 0, delta: {}, finish_reason: 'stop' }] })}\n\ndata: [DONE]\n\n`);
   });
@@ -194,7 +197,7 @@ test('an actual temporary 402 response defers the next request outside the first
       response.statusCode = 402;
       response.end(JSON.stringify({ error: { code: 402, message: 'In-flight reservation limit.',
         metadata: { reason: 'in_flight_budget_exhausted', headers: { 'Retry-After': '0.01' } } } }));
-    } else response.end(JSON.stringify({ choices: [{ message: { role: 'assistant', content: '{"text":[]}' }, finish_reason: 'stop' }] }));
+    } else response.end(JSON.stringify({ choices: [{ message: { role: 'assistant', content: plainResponse() }, finish_reason: 'stop' }] }));
   });
   await assert.rejects(sdkProvider({ connection, ...request }), error => error.code === 'PROVIDER_CAPACITY'
     && error.statusCode === 402 && error.retryAfterMs === 10 && error.category === 'provider_capacity');
@@ -219,7 +222,7 @@ test('ordinary credit exhaustion remains an unretried HTTP failure rather than t
 test('JSON-only servers without an optional finish reason remain compatible without repeated requests', async t => {
   const { connection, requests } = await localEndpoint(t, async response => {
     response.setHeader('content-type', 'application/json');
-    response.end(JSON.stringify({ choices: [{ message: { role: 'assistant', content: '{"text":[]}' } }] }));
+    response.end(JSON.stringify({ choices: [{ message: { role: 'assistant', content: plainResponse() } }] }));
   });
   const result = await sdkProvider({ connection, ...request });
   assert.deepEqual(result.records, []); assert.equal(result.finishReason, 'other'); assert.equal(requests.length, 1);
@@ -232,7 +235,7 @@ test('without a user override thinking stays the model default on every host', a
     const input = JSON.parse(body); bodies.push(input);
     response.setHeader('content-type', 'application/json');
     response.setHeader('x-request-id', 'neutral-thinking-default');
-    response.end(JSON.stringify({ choices: [{ index: 0, message: { role: 'assistant', content: '{"text":[]}' }, finish_reason: 'stop' }] }));
+    response.end(JSON.stringify({ choices: [{ index: 0, message: { role: 'assistant', content: plainResponse() }, finish_reason: 'stop' }] }));
   });
   await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
   t.after(async () => { server.closeAllConnections(); await new Promise(resolve => server.close(resolve)); });
@@ -248,12 +251,12 @@ test('without a user override thinking stays the model default on every host', a
 
 for (const [status, message] of [[400, 'stream is not supported; use stream=false'], [422, 'Unknown parameter: "stream"']]) {
   test(`an explicit ${status} stream rejection falls back once with the same connection`, async t => {
-    const output = { text: [['u1', 'Complete', '']] };
+    const output = plainResponse([['u1', 'Complete']]);
     const { connection, requests } = await localEndpoint(t, async (response, input) => {
       response.setHeader('content-type', 'application/json');
       if (input.stream) { response.statusCode = status; response.end(JSON.stringify({ error: { message } })); return; }
       response.setHeader('x-request-id', 'neutral-nonstream-fallback');
-      response.end(JSON.stringify({ choices: [{ index: 0, message: { role: 'assistant', content: JSON.stringify(output) }, finish_reason: 'stop' }] }));
+      response.end(JSON.stringify({ choices: [{ index: 0, message: { role: 'assistant', content: output }, finish_reason: 'stop' }] }));
     });
     const checkpoints = [];
     const result = await sdkProvider({ connection, ...request, onRecords: records => checkpoints.push(...records) });
@@ -320,9 +323,9 @@ test('the non-streaming fallback shares the original total timeout rather than s
   assert.deepEqual(requests.map(input => input.stream), [true, false]);
 });
 
-test('streamed complete records are checkpointed once before completion across escaped and nested JSON', async t => {
+test('streamed complete records are checkpointed once before completion across literal quotes and multiline text', async t => {
   const records = [
-    { id: 'u1', translation: 'Quoted "{braces}" and \\ slash\nnext line', notes: '完整中文' },
+    { id: 'u1', translation: 'Quoted "{braces}" and \\ slash\nnext line 完整中文', notes: '' },
     { id: 'u2', translation: 'Second record', notes: '' },
   ];
   let checkpoint;
@@ -331,11 +334,11 @@ test('streamed complete records are checkpointed once before completion across e
   let finished = false;
   const { connection } = await localEndpoint(t, async response => {
     startStream(response);
-    sendChunk(response, { content: '```json\n{"te\\u0078t":[' });
-    const first = JSON.stringify(['u1', records[0].translation, records[0].notes]);
+    sendChunk(response, { content: '```text\n[u1]\n' });
+    const first = `${records[0].translation}\n[u2]\n`;
     for (let index = 0; index < first.length; index += 3) sendChunk(response, { content: first.slice(index, index + 3) });
     await firstCheckpoint;
-    sendChunk(response, { content: `,${JSON.stringify(['u2', records[1].translation, records[1].notes])}]}\n\`\`\`` });
+    sendChunk(response, { content: `${records[1].translation}\n[完成]\n\`\`\`` });
     finished = true; finishStream(response);
   });
   const checkpoints = [];
@@ -351,8 +354,8 @@ test('streamed complete records are checkpointed once before completion across e
 test('a truncated SSE response throws after retaining only its completed records', async t => {
   const { connection, requests } = await localEndpoint(t, async response => {
     startStream(response);
-    sendChunk(response, { content: '{"text":[["u1","Complete",""],' });
-    sendChunk(response, { content: '["u2","unfinished' });
+    sendChunk(response, { content: '[u1]\nComplete\n[u2]\n' });
+    sendChunk(response, { content: 'unfinished' });
     response.end();
   });
   const checkpoints = [];
@@ -365,10 +368,10 @@ test('a truncated SSE response throws after retaining only its completed records
   assert.equal(requests.length, 1);
 });
 
-test('an interrupted JSON document preserves closed records but never emits a partial translation', async t => {
+test('an interrupted plain response preserves closed records but never emits a partial translation', async t => {
   const { connection } = await localEndpoint(t, async response => {
     startStream(response);
-    sendChunk(response, { content: '{"text":[["u1","Complete"],["u2","half' });
+    sendChunk(response, { content: '[u1]\nComplete\n[u2]\nhalf' });
     finishStream(response, 'length');
   });
   const checkpoints = [];
@@ -377,11 +380,11 @@ test('an interrupted JSON document preserves closed records but never emits a pa
 });
 
 test('reasoning activity resets idle timeout without entering the returned records', async t => {
-  const output = { text: [['u1', 'Complete', '']] };
+  const output = plainResponse([['u1', 'Complete']]);
   const { connection } = await localEndpoint(t, async response => {
     startStream(response);
     for (let index = 0; index < 8; index++) { sendChunk(response, { reasoning_content: 'neutral thinking ' }); await delay(30); }
-    sendChunk(response, { content: JSON.stringify(output) }); finishStream(response);
+    sendChunk(response, { content: output }); finishStream(response);
   });
   const progress = [];
   const result = await sdkProvider({ connection, ...request, timeout: { firstChunkMs: 1000, chunkMs: 150, totalMs: 2000 }, onProgress: event => progress.push(event) });
@@ -409,7 +412,7 @@ test('SSE heartbeats do not postpone the first meaningful chunk timeout', async 
 test('idle timeout retains the completed candidate and reports a timeout', async t => {
   const { connection } = await localEndpoint(t, async response => {
     startStream(response);
-    sendChunk(response, { content: '{"text":[["u1","Complete"],' });
+    sendChunk(response, { content: '[u1]\nComplete\n[u2]\n' });
   });
   const checkpoints = [];
   await assert.rejects(sdkProvider({ connection, ...request, timeout: { firstChunkMs: 1000, chunkMs: 100, totalMs: 2000 }, onRecords: records => checkpoints.push(...records) }), error => {
@@ -430,7 +433,7 @@ test('the total timeout still caps a response that keeps generating', async t =>
 test('user cancellation retains completed candidates and the original cancellation reason', async t => {
   const controller = new AbortController(), canceled = new Error('neutral user pause');
   const { connection, requests } = await localEndpoint(t, async response => {
-    startStream(response); sendChunk(response, { content: '{"text":[["u1","Complete"],' });
+    startStream(response); sendChunk(response, { content: '[u1]\nComplete\n[u2]\n' });
   });
   const checkpoints = [];
   await assert.rejects(sdkProvider({ connection, ...request, signal: controller.signal, onRecords: records => { checkpoints.push(...records); controller.abort(canceled); } }), error => error === canceled);
@@ -441,7 +444,7 @@ test('user cancellation retains completed candidates and the original cancellati
 test('duplicate short references are rejected before a second checkpoint can overwrite a result', async t => {
   const text = [['u1', 'First'], ['u1', 'Second']];
   const { connection } = await localEndpoint(t, async response => {
-    startStream(response); sendChunk(response, { content: JSON.stringify({ text }) }); finishStream(response);
+    startStream(response); sendChunk(response, { content: plainResponse(text) }); finishStream(response);
   });
   const checkpoints = [];
   await assert.rejects(sdkProvider({ connection, ...request, onRecords: batch => checkpoints.push(...batch) }), { code: 'INVALID_RESPONSE' });
@@ -481,10 +484,10 @@ test('HTTP rate limits retain request identity, Retry-After and classification f
   });
 });
 
-test('malformed terminal JSON preserves usage, finish reason and completed candidate IDs', async t => {
+test('truncated terminal plain text preserves usage, finish reason and completed candidate IDs', async t => {
   const { connection } = await localEndpoint(t, async response => {
     startStream(response);
-    sendChunk(response, { content: '{"text":[["u1","Complete"],["u2","unfinished' });
+    sendChunk(response, { content: '[u1]\nComplete\n[u2]\nunfinished' });
     response.write(`data: ${JSON.stringify({ id: 'neutral-truncated', choices: [{ index: 0, delta: {}, finish_reason: 'length' }], usage: { prompt_tokens: 123, completion_tokens: 456, total_tokens: 579, prompt_tokens_details: { cached_tokens: 17 } } })}\n\n`);
     response.end('data: [DONE]\n\n');
   });
@@ -496,10 +499,9 @@ test('malformed terminal JSON preserves usage, finish reason and completed candi
   });
 });
 
-test('differential review envelopes stay distinct from streamed translation checkpoints', async t => {
-  const review = { reviewed: ['u1'], changes: [], questions: [] };
+test('differential review completion stays distinct from streamed translation checkpoints', async t => {
   const { connection } = await localEndpoint(t, async response => {
-    startStream(response); sendChunk(response, { content: JSON.stringify(review) }); finishStream(response);
+    startStream(response); sendChunk(response, { content: '[完成]' }); finishStream(response);
   });
   const checkpointed = [];
   const result = await sdkProvider({ connection, ...reviewRequest, onRecords: records => checkpointed.push(...records) });
@@ -516,10 +518,10 @@ test('a differential request cannot checkpoint a legacy records envelope before 
   assert.deepEqual(checkpointed, []);
 });
 
-test('differential review can request indexed evidence before emitting its final review envelope', async t => {
+test('differential review can request indexed evidence before emitting its final completion', async t => {
   const lookup = { read: [{ text: 'Captain', reason: 'Resolve speaker identity' }], notes: 'u1: Captain is a rank, identity remains unknown.' };
   const { connection } = await localEndpoint(t, async response => {
-    startStream(response); sendChunk(response, { content: JSON.stringify(lookup) }); finishStream(response);
+    startStream(response); sendChunk(response, { content: `[附加信息]\n${JSON.stringify(lookup)}` }); finishStream(response);
   });
   const result = await sdkProvider({ connection, ...reviewRequest });
   assert.deepEqual(result.evidenceRequests, [{ query: { text: 'Captain' }, reason: 'Resolve speaker identity' }]);
@@ -529,7 +531,7 @@ test('differential review can request indexed evidence before emitting its final
 test('ordinary responses retain optional scoped semantic decisions', async t => {
   const decisions = [{ entity: 'actor', sense: 'name', scope: { unitIds: ['u1'] }, evidenceIds: ['u1'] }];
   const { connection } = await localEndpoint(t, async response => {
-    startStream(response); sendChunk(response, { content: JSON.stringify({ text: [['u1', '萝丝']], decisions }) }); finishStream(response);
+    startStream(response); sendChunk(response, { content: plainResponse([['u1', '萝丝']], { decisions }) }); finishStream(response);
   });
   const result = await sdkProvider({ connection, ...request });
   assert.deepEqual(result.semanticDecisions.map(({ id, expectedRevision, ...decision }) => decision), decisions);

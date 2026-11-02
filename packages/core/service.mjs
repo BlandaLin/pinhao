@@ -8,6 +8,8 @@ import { createAcceptanceLedger, persistAcceptedBatch, readAcceptedBatch, discov
 import { createLogStorageBudget } from './log-storage-budget.mjs';
 import { PROJECT_LAYOUT, createProjectWorkspace, createProductDirectory, releaseProductDirectory, ownsProjectWorkspace } from './project-layout.mjs';
 import { taskPrompt, rebindTextPrompt, repairTextPrompt, sdkProvider, PROMPT_VERSION, configureRequestSlots, compactEvidenceHistory } from './provider.mjs';
+import { createTextWire } from './text-wire.mjs';
+import { createPendingReferenceSelector } from './text-references.mjs';
 import { sha256, validateTranslation, writePackage, readPackage, threeWay } from '../exchange/index.mjs';
 import { scanTerminology, terminologyUpdates, terminologyHints, terminologyReviewStamp, relevantGlossary, glossaryConflicts, incrementalTerminologyCandidates } from './glossary.mjs';
 import { removeArtifact, managedBuildOwner } from './artifacts.mjs';
@@ -17,7 +19,7 @@ import { planAdaptationJobs, runAdaptationPool } from '../technical/adaptation-p
 import { createCoverageBatcher } from '../technical/coverage-batcher.mjs';
 import { readJson as readAdapterRecord, checkedPath as checkedAdapterPath } from '../technical/adaptation/paths.mjs';
 import { createDisplaySourceResolver } from '../technical/adaptation/source-origins.mjs';
-import { selectSupplementalUnits, adaptationLocationKey } from './adaptation-results.mjs';
+import { selectSupplementalUnits, adaptationUnitLocationKey } from './adaptation-results.mjs';
 import { createNativeTools, nativeWorkbenchIdentity, passedNativeRoundtrip } from './native-tools.mjs';
 import { nativeWorkerError, isNativeDependencyFailure, registerNativeFailure } from '../technical/adaptation/native-failure.mjs';
 import { createTaskIndex } from './task-index.mjs';
@@ -31,7 +33,7 @@ import { estimateProgress, progressLine } from './progress.mjs';
 import { buildCompletionReport, completionReportText } from './completion-report.mjs';
 import { createDependencySnapshot, dependencyHash, dependenciesFresh, retainDependencySnapshot, createSemanticState, createSemanticContext, freshSemanticPreparation, publishSemanticDecisions, semanticReuseRecords, createReadReceipt } from './semantic-state.mjs';
 import { materializePartialReviewResponse } from './review-contract.mjs';
-import { textRequestLimits, assertTextRequestCapacity } from './text-capacity.mjs';
+import { textRequestLimits, assertTextRequestCapacity, createTextCapacityPlanner } from './text-capacity.mjs';
 import { resolveEvidenceRequests } from './semantic-tools.mjs';
 import { createReviewRound, prepareReviewTransport, refreshReviewRound, reviewScopes, reviewView, reviewScopeVersion, currentReviewTasks,
   reviewStageComplete, reviewRoundProgress, savedSceneReviewUnits, reviewGlossary, reviewResolutionScopes, reviewOutcome, changedReviewIds } from './review-round.mjs';
@@ -70,6 +72,24 @@ const capabilityFallback = [
   ['vx', 'RPG Maker VX', true], ['xp', 'RPG Maker XP', true], ['rpg2000', 'RPG Maker 2000/2003', false], ['wolf', 'WOLF RPG Editor', false],
 ].map(([id, name, supported]) => ({ id, name, extract: supported, build: supported, assist: false, detail: supported ? '原生文本提取与独立副本构建' : '待接入原生适配器' }));
 const clone = (value) => structuredClone(value);
+const textCapacityFailure = error => {
+  if (!['TEXT_GROUP_CAPACITY_EXCEEDED', 'TEXT_REQUEST_CAPACITY_EXCEEDED'].includes(error?.code)) return;
+  const values = Object.fromEntries(['estimatedInputTokens', 'estimatedOutputTokens', 'estimatedFullOutputTokens', 'reasoningReserve']
+    .filter(key => Number.isFinite(error[key]) && error[key] >= 0).map(key => [key, error[key]]));
+  const limits = error.capacity ?? error;
+  const capacity = Object.fromEntries(['contextWindow', 'maxOutputTokens']
+    .filter(key => Number.isSafeInteger(limits[key]) && limits[key] > 0).map(key => [key, limits[key]]));
+  const source = limits.source ?? error.capacitySource;
+  const capacitySource = source && Object.fromEntries(['contextWindow', 'maxOutputTokens']
+    .filter(key => ['configured', 'conservative-default'].includes(source[key])).map(key => [key, source[key]]));
+  return { code: error.code, ...values, capacity,
+    ...(capacitySource && Object.keys(capacitySource).length ? { capacitySource } : {}),
+    reasons: (error.reasons ?? (values.estimatedInputTokens + capacity.maxOutputTokens > capacity.contextWindow ? ['input-context'] : []))
+      .filter(reason => ['input-context', 'complete-output'].includes(reason)),
+    unitIds: Array.isArray(error.unitIds) ? error.unitIds.filter(id => typeof id === 'string') : [],
+    fetchStarted: error.fetchStarted === true,
+    transportRequests: Number.isSafeInteger(error.transportRequests) && error.transportRequests >= 0 ? error.transportRequests : 0 };
+};
 const modelNotes = (unit, notes) => typeof notes === 'string'
   && (['human', 'external'].includes(unit?.notesOrigin) || notes === '' && unit?.notes)
   ? unit.notes : notes;
@@ -160,6 +180,7 @@ export async function createService({ dataDir, worker, secrets, provider = sdkPr
   const store = createStore(dataDir);
   const diagnostics = await stat(path.join(dataDir, 'diagnostics.on')).then(info => info.isFile(), () => false);
   const projectSnapshots = new Map(), textSnapshots = new Map();
+  const capacityPlanner = createTextCapacityPlanner();
   const storyCache = new Map(), roundCache = new Map(), roundChecks = new Map(), planning = new Map();
   const textSnapshot = id => {
     const version = store.unitVersion(id);
@@ -353,7 +374,12 @@ export async function createService({ dataDir, worker, secrets, provider = sdkPr
   const addIssue = (projectId, category, message, unitId, severity = 'warning', details) => {
     const existing = store.all('issues', projectId).find((i) => i.category === category && i.message === message && i.unitId === unitId && i.taskId === details?.taskId);
     if (existing) {
-      if (existing.resolvedAt) { store.put('issues', { ...existing, resolvedAt: undefined, createdAt: now() }, projectId); emit(); }
+      const refreshCapacity = category === 'text-capacity' && details?.capacityFailure
+        && sha256(existing.capacityFailure ?? null) !== sha256(details.capacityFailure);
+      if (existing.resolvedAt || refreshCapacity) {
+        store.put('issues', { ...existing, ...(refreshCapacity ? { capacityFailure: details.capacityFailure } : {}),
+          resolvedAt: undefined, createdAt: now() }, projectId); emit();
+      }
       return existing;
     }
     const issue = { id: randomUUID(), category, message, severity, createdAt: now(), ...(unitId ? { unitId } : {}), ...(details ?? {}) };
@@ -398,12 +424,14 @@ export async function createService({ dataDir, worker, secrets, provider = sdkPr
   // Structured evidence lives next to the human string so the UI keeps reading lastError/error unchanged.
   const failureDetails = (error, record = {}) => {
     const info = asError(error);
+    const capacityFailure = textCapacityFailure(error);
     const usage = record.usage ? Object.fromEntries(['inputTokens', 'outputTokens', 'totalTokens'].filter((key) => Number.isFinite(record.usage[key])).map((key) => [key, record.usage[key]])) : undefined;
     const category = error?.category ?? record.category ?? (record.status === 'cancelled' ? 'cancelled' : undefined);
     return { ...(info.code ? { code: info.code } : {}), ...(info.status ? { httpStatus: info.status } : {}),
       ...(category ? { category } : {}), ...(record.finishReason ? { finishReason: record.finishReason } : {}),
       ...(record.elapsedMs !== undefined ? { elapsedMs: record.elapsedMs } : {}), ...(record.requestId ? { requestId: record.requestId } : {}),
-      ...(usage && Object.keys(usage).length ? { usage } : {}), at: now() };
+      ...(usage && Object.keys(usage).length ? { usage } : {}),
+      ...(capacityFailure ? { capacityFailure } : {}), at: now() };
   };
   // A unit that keeps failing local validation records how often it was skipped for the same revision and role.
   const skipKeyFor = (projectId, unit, role) => {
@@ -947,7 +975,7 @@ export async function createService({ dataDir, worker, secrets, provider = sdkPr
             nativeRejections: task.nativeRejections,
             ...(task.nativeRepair ? { nativeRepair: { ...task.nativeRepair, unitIds: task.nativeRepair.unitIds.filter(id => ids.has(id)) } } : {}),
             evidenceReferences: task.evidenceReferences, evidenceRounds: changedModel ? 0 : task.evidenceRounds,
-            readingNotes: task.readingNotes, readUnitIds: task.readUnitIds, storyReadingReceipts: task.storyReadingReceipts,
+            readingNotes: task.readingNotes, textWireState: task.textWireState, readUnitIds: task.readUnitIds, storyReadingReceipts: task.storyReadingReceipts,
             evidenceExhausted: changedModel ? undefined : task.evidenceExhausted });
         }
         for (const unit of reusable) reserved.add(unit.id);
@@ -957,15 +985,15 @@ export async function createService({ dataDir, worker, secrets, provider = sdkPr
       const groups = groupUnits(selected.filter(unit => !reserved.has(unit.id))).flatMap(group => group[0]?.context?.syncGroup ? [group] : group.map(unit => [unit]));
       let batches;
       try { batches = packRequestBatches(groups, { role: kind ?? role, targetLanguage: project.runConfig?.targetLanguage ?? settings.targetLanguage,
-        maxBatches: capacity, connection: project.runConfig?.connections?.[role],
+        maxBatches: capacity, connection: project.runConfig?.connections?.[role], capacityPlanner,
         allUnits: units, referenceSelector: textSnapshot(projectId).references, glossaryForUnits: batch => relevantGlossary(glossary, batch),
         story: projectStory(projectId, units),
         promptOptions: batch => ({ reviewProtocol: role === 'proofreading', preparation,
           terminologyCandidates: incrementalTerminologyCandidates(units, batch, glossary, project.runConfig?.targetLanguage ?? settings.targetLanguage) }) }); }
       catch (error) {
         if (error.code !== 'TEXT_GROUP_CAPACITY_EXCEEDED') throw error;
-        addIssue(projectId, 'text-capacity', errorMessage(error), error.unitIds?.[0], 'warning');
-        updateProject(projectId, { status: 'paused', stage: '完整文字组超出模型容量', lastError: errorMessage(error) }); return;
+        addIssue(projectId, 'text-capacity', errorMessage(error), error.unitIds?.[0], 'warning', { capacityFailure: textCapacityFailure(error) });
+        updateProject(projectId, { status: 'paused', stage: '完整文字组超出模型容量', lastError: errorMessage(error), lastFailure: failureDetails(error) }); return;
       }
       for (const group of batches) enqueue(role, group, kind);
     };
@@ -1112,8 +1140,7 @@ export async function createService({ dataDir, worker, secrets, provider = sdkPr
     let lastProgress = started;
     const request = { id: randomUUID(), startedAt: now(), requested: pending.length,
       inputCharacters: requestPromptCharacters(prompt), status: 'receiving',
-      ...(prompt.budget ? { budget: { ...prompt.budget, characters: requestPromptCharacters(prompt),
-        overLimit: Number.isFinite(prompt.budget.limit) && requestPromptCharacters(prompt) > prompt.budget.limit } } : {}) };
+      ...(prompt.budget ? { previewBudget: { ...prompt.budget, characters: requestPromptCharacters(prompt) } } : {}) };
     const artifact = await createRequestArtifact({ directory: path.join(requiredProject(task.projectId).workspaceDir, 'requests'), requestId: request.id, diagnostics,
       request: { system: prompt.system, prompt: prompt.prompt, role: task.role, model: connection.model, baseUrl: connection.baseUrl,
         projectId: task.projectId, taskId: task.id, targetUnitIds: pending.map(unit => unit.id),
@@ -1144,7 +1171,10 @@ export async function createService({ dataDir, worker, secrets, provider = sdkPr
       if (!task.reviewRoundId && task.input.some(input => { const current = store.unit(task.projectId, input.id); return current && (current.revision !== input.revision || current.sourceHash !== input.sourceHash); })) {
         throw Object.assign(new Error('本批目标文字在发送前已被修改，已按最新版本重新规划'), { code: 'PRESEND_STALE' });
       }
-      assertTextRequestCapacity({ connection, system: prompt.system, prompt: prompt.prompt, unitIds: pending.map(unit => unit.id) });
+      const capacity = assertTextRequestCapacity({ connection, system: prompt.system, prompt: prompt.prompt, unitIds: pending.map(unit => unit.id) });
+      request.capacity = { estimatedInputTokens: capacity.estimatedInputTokens, contextWindow: capacity.contextWindow,
+        maxOutputTokens: capacity.maxOutputTokens, capacitySource: capacity.capacitySource, overLimit: false };
+      save({});
       response = await provider({ role: task.role, connection, ...prompt, signal, queueSignal,
         onTransport: event => artifact.observe(event),
         onRecords: records => checkpoint.append(preserveNotes(records)),
@@ -1165,7 +1195,7 @@ export async function createService({ dataDir, worker, secrets, provider = sdkPr
         for (const unit of pending) candidates.delete(unit.id);
         Object.assign(request, { status: 'received', elapsedMs: Date.now() - started, finishedAt: now(), evidenceQuery: true });
         request.artifact = await artifact.finish(response);
-        const reading = response.evidenceRequests.every(item => item.query?.story || item.reason === 'read-scope');
+        const reading = response.evidenceRequests.every(item => item.query?.story || item.query?.term || item.query?.evidence || item.reason === 'read-scope');
         if (!reading && (task.evidenceRounds ?? 0) >= 4) {
           for (const unit of pending) addIssue(task.projectId, 'semantic-evidence', '本轮证据查询已保存，当前文字保留，可补充资料后继续核对', unit.id);
           save({ evidenceExhausted: true, candidateRecords: [...candidates.values()] });
@@ -1219,6 +1249,11 @@ export async function createService({ dataDir, worker, secrets, provider = sdkPr
         response.records = review.records.map(({ id, translation, notes }) => ({ id, translation, notes }));
       }
       checkpoint.finish(preserveNotes(response?.records));
+      capacityPlanner.observe({ connection, role: task.role, targetLanguage: task.targetLanguage, units: pending,
+        outputTokens: response.usage?.outputTokens, finishReason: response.finishReason,
+        complete: !response.responseRepair && pending.every(unit => candidates.has(unit.id))
+          && (!review || review.reviewedIds.length === pending.length),
+        validated: !checkpoint.errors.length && !(review?.errors?.length) });
       request.artifact = await artifact.finish(response);
       Object.assign(request, { status: 'received', elapsedMs: Date.now() - started, finishedAt: now() });
       const semanticCandidate = response.semanticDecisions?.length ? { requestId: request.id,
@@ -1230,10 +1265,28 @@ export async function createService({ dataDir, worker, secrets, provider = sdkPr
       return [...checkpoint.errors, ...(review?.errors ?? []).map(error => error.message)];
     } catch (error) {
       const info = asError(error);
+      const capacityFailure = textCapacityFailure(error);
+      if (error.code === 'MODEL_OUTPUT_TRUNCATED') capacityPlanner.observe({ connection, role: task.role,
+        targetLanguage: task.targetLanguage, units: pending, truncated: true });
+      const invalidated = new Set((error.invalidatedIds ?? []).filter(id => pending.some(unit => unit.id === id)));
+      const invalidGroups = new Set(pending.filter(unit => invalidated.has(unit.id)).map(unit => unit.context?.syncGroup).filter(Boolean));
+      for (const unit of pending) if (invalidated.has(unit.id) || invalidGroups.has(unit.context?.syncGroup)) candidates.delete(unit.id);
+      if (task.reviewRoundId && error.partialReview) {
+        const captured = new Map(pending.map(unit => [unit.id, unit.revision]));
+        const partial = materializePartialReviewResponse({ ...error.partialReview,
+          edits: error.partialReview.edits.map(edit => ({ ...edit, expectedRevision: captured.get(edit.id),
+            ...(Object.hasOwn(edit, 'notes') ? { notes: modelNotes(pending.find(unit => unit.id === edit.id), edit.notes) } : {}) })),
+          invalidEntries: [...(error.partialReview.invalidEntries ?? []), ...pending.filter(unit => invalidated.has(unit.id) || invalidGroups.has(unit.context?.syncGroup))
+            .map(unit => ({ unitId: unit.id, message: '本次回复中的对应条目有歧义，需要重新确认。' }))] }, { units: pending, allUnits, validate });
+        checkpoint.append(partial.records.map(({ id, translation, notes }) => ({ id, translation, notes })));
+        const saved = new Set([...(task.reviewedUnitIds ?? []), ...partial.reviewedIds].filter(id => candidates.has(id)));
+        save({ reviewedUnitIds: [...saved], reviewCandidate: partial,
+          reviewIssues: [...(task.reviewIssues ?? []), ...partial.issues], candidateRecords: [...candidates.values()] });
+      }
       request.artifact = await artifact.fail(error, response);
       Object.assign(request, { status: signal.aborted || textPausePending(task.projectId) ? 'cancelled' : 'failed', elapsedMs: Date.now() - started,
         finishedAt: now(), error: errorMessage(error), ...(info.code ? { code: info.code } : {}), ...(info.status ? { httpStatus: info.status } : {}),
-        ...providerFailure(error) });
+        ...providerFailure(error), ...(capacityFailure ? { capacityFailure } : {}) });
       if (isTransientRequestFailure(error)) cooldown.defer(connectionKey(connection), error, task.transportWindowAttempts ?? 0);
       save({ candidateRecords: [...candidates.values()], error: errorMessage(error), lastFailure: failureDetails(error, request) });
       throw error;
@@ -1269,7 +1322,9 @@ export async function createService({ dataDir, worker, secrets, provider = sdkPr
         const limits = textRequestLimits(connection);
         const referencesForUnits = batch => {
           const ids = new Set(batch.map(unit => unit.id));
-          return [...new Map([...collectRequestReferences(view.units, [batch]), ...material].map(unit => [unit.id, unit])).values()].filter(unit => !ids.has(unit.id));
+          return [...new Map([...collectRequestReferences(view.units, [batch]), ...material].map(unit => [unit.id, unit])).values()]
+            .filter(unit => !ids.has(unit.id)).map(unit => candidates.has(unit.id) ? { ...unit,
+              translation: candidates.get(unit.id).translation, notes: candidates.get(unit.id).notes ?? unit.notes } : unit);
         };
         const priorQuestions = batch => [...new Set(batch.flatMap(unit => [
           ...(unit.review?.status === 'needs_evidence' ? (unit.review.issues ?? []).map(issue => issue.message) : []),
@@ -1282,7 +1337,7 @@ export async function createService({ dataDir, worker, secrets, provider = sdkPr
           terminologyHints: terminologyHints(reviewTerms, batch),
           evidenceResults: task.evidenceReplies, readingNotes: task.readingNotes });
         const units = packRequestBatches(groups, { role: 'proofreading', targetLanguage: task.targetLanguage, allUnits: view.units,
-          connection, maxUnits: task.retryMaxUnits ?? limits.maxUnits,
+          connection, capacityPlanner, maxUnits: task.retryMaxUnits ?? limits.maxUnits,
           referenceSelector: groups => referencesForUnits(groups.flat()), glossaryForUnits: batch => relevantGlossary(reviewTerms, batch),
           promptOptions: optionsForUnits, maxBatches: 1 })[0] ?? [];
         if (!units.length) { store.putTask(projectId, { ...task, status: 'succeeded' }); saveReviewProgress(projectId, round); return; }
@@ -1311,9 +1366,10 @@ export async function createService({ dataDir, worker, secrets, provider = sdkPr
         saveReviewProgress(projectId, round); emit(); return;
       } catch (error) {
         if (store.one('tasks', task.id)?.status === 'stale') return;
+        for (const id of task.reviewedUnitIds ?? []) if (candidates.has(id)) reviewedUnitIds.add(id);
         for (const id of candidates.keys()) if (!reviewedUnitIds.has(id)) candidates.delete(id);
         task = { ...task, error: errorMessage(error), candidateRecords: [...candidates.values()], reviewedUnitIds: [...reviewedUnitIds],
-          reviewChangedIds: (task.reviewChangedIds ?? []).filter(id => reviewedUnitIds.has(id)),
+          reviewChangedIds: changedReviewIds([...candidates.values()], scopeUnits),
           reviewIssues: (task.reviewIssues ?? []).filter(issue => reviewedUnitIds.has(issue.unitId)),
           ...(task.reviewCandidate ? { reviewCandidate: { ...task.reviewCandidate,
             reviewedIds: [...reviewedUnitIds], issues: (task.reviewCandidate.issues ?? []).filter(issue => reviewedUnitIds.has(issue.unitId)) } } : {}) };
@@ -1518,9 +1574,9 @@ units = retainTaskUnits(task, current.filter(unit => unit.status === (task.role 
         const remainingUnits = units.filter((unit) => !candidates.has(unit.id));
         const limits = textRequestLimits(connection);
         const remainingGroups = groupUnits(remainingUnits).flatMap(group => group[0]?.context?.syncGroup ? [group] : group.map(unit => [unit]));
-        const context = [...new Map([...referenceUnits.map(unit => store.unit(projectId, unit.id) ?? unit),
-          ...(task.evidenceReferences ?? []), ...units.filter((unit) => candidates.has(unit.id)).map((unit) => ({ ...unit, translation: candidates.get(unit.id).translation, notes: candidates.get(unit.id).notes ?? unit.notes }))]
-          .map(unit => [unit.id, unit])).values()];
+        const referencesForPending = createPendingReferenceSelector(textSnapshot(projectId).units, {
+          story: projectStory(projectId), candidates,
+          evidenceReferences: task.evidenceReferences ?? [], evidenceReplies: task.evidenceReplies ?? [] });
         const sharedGlossary = relevantGlossary(requiredProject(projectId).nameGlossary, units);
         const optionsForUnits = batch => ({ reviewProtocol: task.role === 'proofreading', maxCharacters: limits.maxCharacters,
           story: storyMaterialEntrypoints(projectStory(projectId), batch.map(unit => unit.id)),
@@ -1529,8 +1585,9 @@ units = retainTaskUnits(task, current.filter(unit => unit.status === (task.role 
           evidenceResults: task.evidenceReplies, readingNotes: task.readingNotes });
         const pending = remainingUnits.length ? packRequestBatches(remainingGroups, { connection, role: task.role,
           targetLanguage: task.targetLanguage ?? settings.targetLanguage, allUnits: textSnapshot(projectId).units,
-          maxUnits: task.retryMaxUnits ?? limits.maxUnits, maxBatches: 1,
-          referenceSelector: () => context, glossaryForUnits: () => sharedGlossary, promptOptions: optionsForUnits })[0] : [];
+          capacityPlanner, maxUnits: task.retryMaxUnits ?? limits.maxUnits, maxBatches: 1,
+          referenceSelector: referencesForPending, glossaryForUnits: () => sharedGlossary, promptOptions: optionsForUnits })[0] : [];
+        const context = referencesForPending([pending]);
         const semanticReceipts = [...pending.map(unit => createReadReceipt(unit, { translation: unit.translation !== unit.source, notes: Boolean(unit.notes) })),
           ...context.map(unit => {
             const candidate = candidates.get(unit.id), original = units.find(original => original.id === unit.id);
@@ -1746,7 +1803,7 @@ units = retainTaskUnits(task, current.filter(unit => unit.status === (task.role 
         const additional = extraUnits.filter(unit => {
           const previous = existing.get(unit.legacyId ?? unit.id);
           return !previous || previous.source !== unit.source
-            || adaptationLocationKey(previous.context?.adaptationLocator) !== adaptationLocationKey(unit.locator ?? unit.context?.adaptationLocator);
+            || adaptationUnitLocationKey(previous) !== adaptationUnitLocationKey(unit);
         });
         const coverage = { ...await scanResources({ projectId, rootDir: sourceRoot, sourceRoots: sourceRoots.slice(1), decisions,
           inventory: { ...current.inventory, coverage: current.inventory?.nativeCoverage },
@@ -1839,7 +1896,7 @@ units = retainTaskUnits(task, current.filter(unit => unit.status === (task.role 
             initialWorkbenchDir: latest.nativeStage.initialWorkbenchDir ?? project.workbenchDir, previousWorkbenchDir: current.workbenchDir },
             sourceFingerprint: additions.length ? sha256([...existing.values(), ...additions]
               .map(unit => [unit.legacyId, unit.sourceHash, unit.tokens, unit.context?.controlFingerprint,
-                adaptationLocationKey(unit.context?.adaptationLocator, unit.context?.file)])
+                adaptationUnitLocationKey(unit)])
               .sort(([left], [right]) => left.localeCompare(right))) : latest.sourceFingerprint,
             inventory: { ...latest.inventory, nativeManifestPath: path.join(workbenchDir, 'manifest.json'), reviewItems: compactReviewItems(extraction.reviewItems ?? []),
               nativeCoverage: extraction.coverage, processedResources: extraction.processedResources ?? latest.inventory.processedResources,
@@ -1916,8 +1973,9 @@ units = retainTaskUnits(task, current.filter(unit => unit.status === (task.role 
         if (!(current.prepared || current.nativePrepared)) throw Object.assign(new Error('已接受成果等待首次工作台准备'), { code: 'INTEGRATION_PENDING', hostFailure: true });
         const baseGeneration = publication().generation;
         const baseSource = current.sourceFingerprint;
-        const writeSet = [...new Set([...(item.units ?? []).map(unit => unit.context?.carrier ?? unit.locator?.file),
-          ...(item.binding?.verificationPlan?.writeGroups ?? []).flatMap(group => group.writeSet)].filter(Boolean))];
+        const writeSet = item.binding?.sourceView ? [item.binding.sourceView.container.file]
+          : [...new Set([...(item.units ?? []).map(unit => unit.context?.carrier ?? unit.locator?.file),
+            ...(item.binding?.verificationPlan?.writeGroups ?? []).flatMap(group => group.writeSet)].filter(Boolean))];
         const ownerFingerprint = () => {
           const request = requiredProject(projectId).adaptationRequest;
           if (!acceptedRecord) return sha256(request?.jobs);
@@ -1953,9 +2011,8 @@ units = retainTaskUnits(task, current.filter(unit => unit.status === (task.role 
         if (!item.workspaceDir || !Array.isArray(item.units)) throw new Error('已验证配方需要独立工作台和文字定位');
         if (current.adaptationRequest?.kind === 'build-repair') {
           const sameIdentity = (raw, previous) => previous && raw.source === previous.source
-            && adaptationLocationKey(raw.locator, raw.locator?.file, raw.context?.formatBinding)
-            && adaptationLocationKey(raw.locator, raw.locator?.file, raw.context?.formatBinding)
-              === adaptationLocationKey(previous.context?.adaptationLocator, previous.context?.file, previous.context?.formatBinding)
+            && adaptationUnitLocationKey(raw)
+            && adaptationUnitLocationKey(raw) === adaptationUnitLocationKey(previous)
             && sha256(raw.tokens ?? []) === sha256(previous.tokens ?? [])
             && sha256(Object.fromEntries(Object.entries(raw.controls ?? {}).sort(([a], [b]) => a.localeCompare(b)))) === (previous.context?.controlFingerprint ?? sha256({}));
           const existing = new Map(store.units(projectId).map(unit => [unit.legacyId, unit]));
@@ -1989,7 +2046,8 @@ units = retainTaskUnits(task, current.filter(unit => unit.status === (task.role 
             const registry = await prepareSupplement({ workspaceDir: current.workbenchDir, adapterWorkspaceDir: item.workspaceDir,
               unitIds: replacements.map(raw => raw.legacyId ?? raw.id), units: replacements,
               files: [...new Set([...replacements.map(raw => raw.locator.file), ...(item.binding?.verificationPlan?.writeGroups ?? []).flatMap(group => group.writeSet)])],
-              baselineDir: sourceDir, sourceRoot, resourceRoot: current.resourceRoot, replaceVerified: true,
+              baselineDir: item.binding?.sourceView ? item.binding.gameDir : sourceDir, sourceRoot, resourceRoot: current.resourceRoot,
+              replaceVerified: true, sourceView: item.binding?.sourceView,
               currentManifestRef: current.publication?.compositeManifestRef, verificationPlan: item.binding?.verificationPlan });
             await checkProof();
             await publish(() => { if (registry.registryChanged) updateProject(projectId, { publication: nextPublication({ compositeManifestRef: registry.manifestRef }) }); },
@@ -2011,7 +2069,8 @@ units = retainTaskUnits(task, current.filter(unit => unit.status === (task.role 
         }
         const registry = await prepareSupplement({ workspaceDir: current.workbenchDir, adapterWorkspaceDir: item.workspaceDir,
           unitIds: selected.rawUnits.map(unit => unit.legacyId ?? unit.id), units: selected.rawUnits,
-          files: [...new Set([...selected.rawUnits.map(unit => unit.locator.file), ...(item.binding?.verificationPlan?.writeGroups ?? []).flatMap(group => group.writeSet)])], baselineDir: sourceDir, sourceRoot, resourceRoot: current.resourceRoot,
+          files: [...new Set([...selected.rawUnits.map(unit => unit.locator.file), ...(item.binding?.verificationPlan?.writeGroups ?? []).flatMap(group => group.writeSet)])],
+          baselineDir: item.binding?.sourceView ? item.binding.gameDir : sourceDir, sourceRoot, resourceRoot: current.resourceRoot, sourceView: item.binding?.sourceView,
           currentManifestRef: current.publication?.compositeManifestRef, verificationPlan: item.binding?.verificationPlan });
         await checkProof();
         await publish(() => {
@@ -2674,9 +2733,17 @@ units = retainTaskUnits(task, current.filter(unit => unit.status === (task.role 
       try {
         const taskRole = role === 'shared' ? 'translation' : role;
         const connection = await connectionFor(taskRole, role === 'shared' ? settings.connection : undefined);
-        const result = await provider({ role: taskRole, connection, system: 'Reply only with JSON: {"records":[]}', prompt: '连接测试。请返回 {"records":[]}。', signal: AbortSignal.any([controller.signal, AbortSignal.timeout(20000)]) });
-        if (!Array.isArray(result?.records)) throw new Error('接口已响应，返回内容需要符合 records JSON 文字协议，请检查模型配置后重试');
-        return { ok: true, message: '接口连接与 JSON 返回测试通过' };
+        const wire = taskRole === 'technical' ? undefined : createTextWire({ task: taskRole,
+          ...(taskRole === 'proofreading' ? { responseProtocol: 'pinhao-review-1' } : {}),
+          units: [{ id: 'connection-probe', source: 'Good morning.', ...(taskRole === 'proofreading' ? { currentTranslation: 'Morning.' } : {}) }], referenceOnly: [], glossary: [] });
+        const result = await provider({ role: taskRole, connection,
+          system: wire ? `这是短文字连接测试。${wire.review ? '逐条校对现译' : '翻译原文'}，目标语言：${settings.targetLanguage}。按下方分段协议交付，不附加说明。` : 'Reply only with JSON: {"records":[]}',
+          prompt: wire?.prompt ?? '连接测试。请返回 {"records":[]}。', ...(wire ? { wire } : {}),
+          signal: AbortSignal.any([controller.signal, AbortSignal.timeout(20000)]) });
+        const valid = !wire ? Array.isArray(result?.records) : wire.review ? result?.review?.reviewedIds?.includes('connection-probe')
+          : result?.records?.length === 1 && result.records[0].id === 'connection-probe' && typeof result.records[0].translation === 'string' && Boolean(result.records[0].translation.trim());
+        if (!valid || result.responseRepair || result.evidenceRequests?.length) throw new Error('接口已响应，但短文字交稿未通过，请检查模型返回格式后重试');
+        return { ok: true, message: wire ? '接口连接与短文字交稿测试通过' : '接口连接与基础返回测试通过' };
       } catch (error) {
         const statusCode = Number(error?.statusCode);
         const retryAfterMs = Number(error?.retryAfterMs);
@@ -3073,7 +3140,7 @@ units = retainTaskUnits(task, current.filter(unit => unit.status === (task.role 
           try { adapterBindings.push([name, sha256(await readFile(path.join(project.workbenchDir, name)))]); }
           catch (error) { if (error.code !== 'ENOENT') throw error; }
         }
-        const inputHash = sha256({ recipe: 6, nativeRevision, adapterBindings, generation,
+        const inputHash = sha256({ recipe: ['MV', 'MZ'].includes(project.engine) ? 7 : 6, nativeRevision, adapterBindings, generation,
           compositeManifestRef: project.publication?.compositeManifestRef, workbenchDir: project.workbenchDir,
           source: project.sourceFingerprint, units: units.map((u) => [u.legacyId, u.translation]), fontHash, assistEnabled: project.assistEnabled !== false, processImages: project.runConfig?.processImages ?? settings.processImages });
         const latest = store.all('builds', projectId).at(-1);
@@ -3129,7 +3196,7 @@ units = retainTaskUnits(task, current.filter(unit => unit.status === (task.role 
         phase = 'supplemental-text';
         const scriptAdapter = await loadScripts();
         if (scriptAdapter && project.scriptBinding) await scriptAdapter.applyDisplayText({ outputDir: resultPath, binding: project.scriptBinding, translations: units.filter((u) => u.legacyId.startsWith('script:')).map((u) => ({ id: u.legacyId, translation: u.translation })) });
-        await applySupplementalText({ adapterBuilds: data.adapterBuilds, gameDir: project.gameDir, buildDir: data.buildDir ?? buildDir, outputDir: resultPath, signal });
+        await applySupplementalText({ adapterBuilds: data.adapterBuilds, gameDir: project.gameDir, buildDir: data.buildDir ?? buildDir, outputDir: resultPath, signal, lab: await getLab() });
         if (!packImages && project.imageBinding && (project.runConfig?.processImages ?? settings.processImages)) {
           try {
             const imageAdapter = await loadImages();
@@ -3139,6 +3206,12 @@ units = retainTaskUnits(task, current.filter(unit => unit.status === (task.role 
             }
           } catch (error) { addIssue(projectId, 'image-redraw', `图片重绘保留原图：${errorMessage(error)}`); }
         }
+        let nameIdentity;
+        if (['MV', 'MZ'].includes(project.engine)) {
+          phase = 'name-identity';
+          const { finalizeRpgMakerNameIdentity } = await import('../technical/rpgmaker-name-build.mjs');
+          nameIdentity = await finalizeRpgMakerNameIdentity({ outputDir: resultPath, engine: project.engine, resourceRoot: project.resourceRoot, signal });
+        }
         const launchPath = assembly.launchPath ?? assembly.report?.launchPath;
         const checks = [
           { name: '结构与保护标记', status: 'passed' },
@@ -3146,6 +3219,8 @@ units = retainTaskUnits(task, current.filter(unit => unit.status === (task.role 
           { name: assembly.sourceOnly ? '源码工程副本' : '独立副本组装', status: 'passed', detail: '原版资源与当前文字已写入新副本' },
           { name: '专名与术语一致性', status: termConflicts.length || unconfirmed ? 'pending' : 'passed', detail: `统一 ${glossary.entries.length - unconfirmed} 项；${termConflicts.length} 条文字、${unconfirmed} 项术语待核对` },
           { name: '校对证据', status: reviewPending ? 'pending' : 'passed', detail: reviewPending ? `${reviewPending} 条文字校对未完成，保留已有文字；可在文字工作台重试或查看待补证据` : '当前审阅问题已分别记录' },
+          ...(nameIdentity ? [{ name: '名称逻辑兼容检查', status: nameIdentity.status === 'checked' ? 'passed' : 'pending',
+            detail: `静态检查修正 ${nameIdentity.changed} 处已确认的名称引用，${nameIdentity.warningCount} 处需核对；详情见 ${nameIdentity.reportFile}` }] : []),
           { name: '实机游玩验收', status: 'pending', detail: '请启动成品检查对话、分支、存档与布局' },
         ];
         if (assembly.report?.checks) checks.push(...assembly.report.checks);
@@ -3177,7 +3252,7 @@ units = retainTaskUnits(task, current.filter(unit => unit.status === (task.role 
           ...(assembly.assist ? { assistance: assistanceProjection(project, { supported: assistModes.length > 0, modes: assistModes, detail: assembly.assist.detail, ...(assembly.assist.status ? { status: assembly.assist.status } : {}) }) } : {}),
           createdAt: now(), changed: units.filter((u) => u.translation !== u.source).length, checks, inputHash,
           ...(outputOwner && path.resolve(resultPath) === output ? { managedOwner: outputOwner } : {}),
-          outputManifest: finalManifest, runtimeVerified: runtime?.kind === 'gameplay' && runtime.status === 'passed', ...(runtime ? { runtime } : {}) };
+          outputManifest: finalManifest, runtimeVerified: runtime?.kind === 'gameplay' && runtime.status === 'passed', ...(runtime ? { runtime } : {}), ...(nameIdentity ? { nameIdentity } : {}) };
         const buildProofs = [
           ...(data.buildReceiptId ? [{ workspaceDir: project.workbenchDir, buildDir: data.buildDir ?? buildDir, buildReceiptId: data.buildReceiptId,
             gameDir: project.gameDir, outputDir: path.resolve(resultPath, project.resourceRoot ?? '.'), finalGameDir: resultPath }] : []),

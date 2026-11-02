@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { taskPrompt, promptContext, parseModelResponse } from './provider.mjs';
+import { TEXT_WIRE_VERSION } from './text-wire.mjs';
 import { createDependencySnapshot, dependenciesFresh } from './semantic-state.mjs';
 import { relevantGlossary, scanTerminology } from './glossary.mjs';
 import { compactStoryContext } from '../exchange/story.mjs';
@@ -50,22 +51,38 @@ test('ordinary translation retains real accepted names without creating terminol
   const rows = prompt.wire.payload.units;
   assert.equal(rows[0].currentTranslation, undefined); assert.equal(rows[1].currentTranslation, '月亮');
   assert.equal(rows[2].currentTranslation, '河流');
-  assert.match(prompt.system, /初翻时可顺手附 terms/);
-  assert.doesNotMatch(prompt.system, /专名编辑|收录规则/);
+  const material = `${prompt.system}\n${prompt.prompt}`;
+  assert.match(material, /【按需能力】[\s\S]*"terms":\[\[/);
+  assert.match(material, /原词和译名必须分别出现在对应正文[\s\S]*遗漏无需补交或重译/);
+  assert.doesNotMatch(material, /专名编辑|收录规则/);
 });
 
 test('all text phases retain the unique short-reference text or differential protocol with frozen review scope', () => {
   const translation = taskPrompt('translation', [unit('u1', 'A')], 'zh-Hans');
-  assert.match(translation.system, /"text"/); assert.doesNotMatch(translation.system, /"records"/);
+  assert.match(translation.system, /独立短标记行[\s\S]*正文不用 JSON/);
+  assert.match(translation.prompt, /格式示例：\n\[u1\]\n完整译文\n\[完成\]/);
+  assert.doesNotMatch(translation.system, /"text"|"records"/);
+  for (const field of ['terms', 'read', 'decisions']) assert.ok(`${translation.system}\n${translation.prompt}`.includes(`"${field}"`));
   const result = taskPrompt('proofreading', [unit('u1', 'A')], 'zh-Hans', [], [], {
     reviewProtocol: true, reviewScope: { id: 'round:scene', stage: 'consistency', unitIds: ['u1'] },
     story: { revision: 1, scenes: [{ id: 's1', title: 'Evening', scope: { unitIds: ['u1'] } }] }, readingNotes: 'u0: Earlier scene establishes a formal address.' });
   const payload = result.wire.payload;
-  assert.equal(payload.responseProtocol, 'pinhao-review-1'); assert.equal(payload.reviewScope.stage, 'consistency');
-  assert.equal(payload.story.scenes[0].id, 's1'); assert.match(result.system, /story/);
+  assert.equal(payload.responseProtocol, 'pinhao-review-1');
+  assert.deepEqual(payload.reviewScope, { id: 'round:scene', stage: 'consistency', unitIds: ['u1'] });
+  const material = `${result.system}\n${result.prompt}`;
+  assert.equal(payload.story.scenes[0].id, 's1'); assert.match(material, /read:\[\{story:/);
   assert.ok(result.prompt.includes('Evening'));
   assert.equal(payload.readingNotes, 'u0: Earlier scene establishes a formal address.');
-  assert.match(result.system, /needs_evidence[\s\S]*不得同时放入 changes[\s\S]*保留当前译文/);
+  assert.match(result.system, /待补证的文字保留现译/);
+  assert.match(material, /needs_evidence[\s\S]*不得把待补证条目同时改写/);
+  assert.match(result.system, /完整保持\{\{\.\.\.\}\}保护标记及顺序/);
+  assert.match(result.system, /只读参考不属于交稿目标/);
+  assert.match(result.system, /明确返回完成标记，不必抄写全部审阅编号/);
+  assert.match(result.prompt, /独占一行写 \[完成\][\s\S]*没有修改也必须明确完成/);
+  const completed = parseModelResponse('[完成]', { finishReason: 'stop', responseProtocol: TEXT_WIRE_VERSION, review: true });
+  assert.deepEqual(completed, { complete: true, changes: [], questions: [] });
+  assert.equal(Object.hasOwn(completed, 'reviewed'), false);
+  assert.equal(parseModelResponse('[u1]\n改文', { finishReason: 'stop', responseProtocol: TEXT_WIRE_VERSION, review: true }).complete, false);
 });
 
 test('actual prompt glossary selection controls dependencies, including word boundaries and homonym scope', () => {

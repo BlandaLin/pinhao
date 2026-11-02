@@ -147,11 +147,19 @@ export async function runDesktopSmoke({ service, window, windowIcon, secrets, da
           message = name ? { role: 'assistant', content: null, tool_calls: [{ id: `call-${name}`, type: 'function', function: { name, arguments: JSON.stringify(name === 'inspect_game' ? {} : { decision: 'native-standard', summary: 'Neutral native recipe verified', selectedCandidateIds: [] }) } }] } : { role: 'assistant', content: 'Recipe committed.' };
           if (name) finish = 'tool_calls';
         } else {
-          const payload = JSON.parse(parsed.messages.at(-1).content);
-          const result = payload.task === 'proofreading'
-            ? { protocol: 'pinhao-review-1', reviewedIds: payload.units.map(unit => unit.id), edits: [], issues: [] }
-            : { records: payload.units.map(unit => ({ id: unit.id, translation: `译${unit.source ?? payload.sources?.[unit.sourceRef]}`, notes: '' })) };
-          message = { role: 'assistant', content: JSON.stringify(result) };
+          const prompt = parsed.messages.at(-1).content;
+          const targets = /^本次目标标记：(\[[^\r\n]+\])。/m.exec(prompt);
+          if (!targets) throw new Error('桌面样例缺少当前文字目标标记');
+          const refs = JSON.parse(targets[1]);
+          const blocks = new Map([...prompt.matchAll(/^(\[+)(u[1-9]\d*)(\]+)\r?\n原文：\r?\n([\s\S]*?)(?=\r?\n文字用途：)/gm)]
+            .filter(match => match[1].length === match[3].length).map(match => [match[2], { depth: match[1].length, source: match[4] }]));
+          if (!refs.length || refs.some(ref => !blocks.has(ref))) throw new Error('桌面样例无法对齐完整目标文字块');
+          const depth = blocks.get(refs[0]).depth;
+          if (refs.some(ref => blocks.get(ref).depth !== depth)) throw new Error('桌面样例文字分段标记深度不一致');
+          const marker = ref => '['.repeat(depth) + ref + ']'.repeat(depth);
+          const review = parsed.messages.some(item => item.role === 'system' && item.content.includes('你是游戏本地化校对'));
+          const result = review ? marker('完成') : [...refs.map(ref => `${marker(ref)}\n译${blocks.get(ref).source}`), marker('完成')].join('\n');
+          message = { role: 'assistant', content: result };
         }
         response.setHeader('Content-Type', 'application/json');
         response.end(JSON.stringify({ id: 'local-desktop-smoke', object: 'chat.completion', created: 1, model: parsed.model, choices: [{ index: 0, message, finish_reason: finish }], usage: { prompt_tokens: 10, completion_tokens: 10, total_tokens: 20 } }));

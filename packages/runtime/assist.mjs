@@ -4,6 +4,7 @@ import { access, mkdir, mkdtemp, open, readFile, writeFile, rename, rm } from 'n
 import path from 'node:path';
 import os from 'node:os';
 import { commitAssistFiles } from './assist-install.mjs';
+import { registerPlugin } from './rpgmaker-plugins.mjs';
 
 export const assistActions = ['setGold', 'setItem', 'setSwitch', 'setVariable', 'setNamedVariable', 'heal', 'setLevel', 'setExp', 'setHp', 'setMp', 'setThrough', 'setMoveSpeed', 'setEncounter', 'jump', 'transfer', 'restoreMovement', 'captureRecollection', 'applyRecollection', 'restoreRecollection'];
 
@@ -375,13 +376,14 @@ export async function installAssistPlugin(outputDir, { worker } = {}) {
     const original = await readFile(file);
     let source = original.toString('utf8');
     if (!source.includes('$plugins')) return { supported: false, status: 'unsupported', detail: '插件入口需专项适配' };
-    const marker = '// PinHao optional assistance registration';
-    source = source.replace(/\n?\/\/ PinHao optional assistance registration\r?\n\$plugins = \$plugins\.filter\(function\(plugin\) \{ return plugin\.name !== "PinhaoAssist"; \}\);\r?\n\$plugins\.push\(\{[\s\S]*?\r?\n\}\);\r?\n(?:\/\/ PinHao optional assistance end\r?\n)?/g, '');
-    const descriptor = JSON.stringify({ name: 'PinhaoAssist', status: true, description: '拼好汉化可选游玩辅助', parameters: {} }, null, 2);
-    const registration = `\n${marker}\n$plugins = $plugins.filter(function(plugin) { return plugin.name !== "PinhaoAssist"; });\n$plugins.push(${descriptor});\n// PinHao optional assistance end\n`;
+    try {
+      source = registerPlugin(source, { name: 'PinhaoAssist', status: true, description: '拼好汉化可选游玩辅助', parameters: {} });
+    } catch (error) {
+      return { supported: false, status: 'unsupported', detail: error.message };
+    }
     const result = await commitAssistFiles([
       { file: path.join(root, 'js/plugins/PinhaoAssist.js'), content: Buffer.from(assistPluginSource) },
-      { file, content: Buffer.from(source + registration), expected: original },
+      { file, content: Buffer.from(source), expected: original },
     ]);
     return result.status === 'installed' ? { supported: true, status: 'installed', engine, transport: 'http' } : result;
   }

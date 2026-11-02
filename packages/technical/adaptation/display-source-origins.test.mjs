@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { mkdtemp, mkdir, readFile, writeFile, cp, rm } from 'node:fs/promises';
+import { mkdtemp, mkdir, readFile, realpath, writeFile, cp, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { createDisplaySourceResolver } from './source-origins.mjs';
@@ -77,7 +77,7 @@ test('representation dependencies use the exact original root only after copied 
     sha256: createHash('sha256').update(await readFile(path.join(root, relative))).digest('hex') })));
   await writeFile(`${copy}.snapshot.json`, JSON.stringify({ sourceRoots: [original, other], files }));
   const resolver = await createDisplaySourceResolver({ projectId: 'p', roots: [copy], sourceCopyPath: copy, allowedSourceRoots: [original, other] });
-  assert.equal(await resolver.resolveRoot({ files: ['scene.json'] }), original);
+  assert.equal(await resolver.resolveRoot({ files: ['scene.json'] }), await realpath(original));
   await assert.rejects(readFile(path.join(copy, 'loader.js')), { code: 'ENOENT' });
   await assert.rejects(resolver.resolveRoot({ files: ['scene.json', 'second.json'] }), { code: 'EMBEDDED_REPRESENTATION_PENDING' });
   await assert.rejects(resolver.resolveRoot({ files: ['loader.js'] }), { code: 'DISPLAY_SOURCE_STALE' });

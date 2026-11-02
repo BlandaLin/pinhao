@@ -2,7 +2,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { StringDecoder } from 'node:string_decoder';
 import { createReadStream, lstatSync } from 'node:fs';
-import { mkdir, readFile, readdir, lstat, copyFile, open } from 'node:fs/promises';
+import { mkdir, readFile, readdir, lstat, copyFile, open, rename, unlink } from 'node:fs/promises';
 import { isDeepStrictEqual } from 'node:util';
 import path from 'node:path';
 import { runSandbox, DEFAULT_LIMITS } from './sandbox.mjs';
@@ -568,6 +568,30 @@ export async function createAdapterLab({ dataDir, workspaceFor, trustedTools = {
         return commit();
       });
     },
+    async applyContainerBuild({ workspaceDir, buildDir, buildReceiptId, sourceView: expectedView, outputDir, signal }) {
+      const state = await readBinding(workspaceDir, signal);
+      if (!state?.binding.sourceView || !isDeepStrictEqual(state.binding.sourceView, expectedView)) throw formatFailure('FORMAT_SOURCE_STALE', '容器补充绑定与已验证成员视图不一致');
+      const { binding, candidate } = state;
+      if (binding.recordNamespace?.root && executionContext.getStore()?.recordRoot !== binding.recordNamespace.root) return executionContext.run({ ...executionContext.getStore(), recordRoot: binding.recordNamespace.root }, () => lab.applyContainerBuild({ workspaceDir, buildDir, buildReceiptId, sourceView: expectedView, outputDir, signal }));
+      await independentRoot(binding.sourceView.originalGameDir, outputDir);
+      await lab.assertBuildOutputFresh({ workspaceDir, buildDir, buildReceiptId, signal });
+      const carrier = binding.sourceView.container.file;
+      if (await archiveHash(outputDir, carrier) !== binding.sourceView.archiveHash) throw formatFailure('FORMAT_SCOPE_CONFLICT', '成品容器已有其他写入，请联合适配，不能覆盖原生改动');
+      if (!archiveResolver?.repackArchive) throw formatFailure('FORMAT_INTEGRATION_UNSUPPORTED', '容器缺少成熟封包能力');
+      const staging = await ensureRoot(path.join(storageRoot(), 'runs', `supplement-repack-${randomUUID()}`));
+      const outputFile = await checkedPath(staging, carrier, { write: true });
+      await mkdir(path.dirname(outputFile), { recursive: true });
+      await archiveResolver.repackArchive({ gameDir: binding.sourceView.originalGameDir, container: binding.sourceView.container, inputDir: buildDir, outputFile, signal });
+      const view = await sourceView(candidate, staging, signal);
+      await lab.assertBuildOutputFresh({ workspaceDir, buildDir, buildReceiptId, outputDir: view.gameDir, strictResourceHashes: true, signal });
+      const target = await checkedPath(outputDir, carrier, { write: true });
+      // Publish only after the physical archive was reopened and every member read back.
+      if (await archiveHash(outputDir, carrier) !== binding.sourceView.archiveHash) throw formatFailure('FORMAT_SOURCE_STALE', '容器在发布前发生变化');
+      const temporary = `${target}.${randomUUID()}.tmp`;
+      try { await copyFile(outputFile, temporary); await rename(temporary, target); }
+      finally { await unlink(temporary).catch(error => { if (error.code !== 'ENOENT') throw error; }); }
+      return { carrier, archiveHash: await archiveHash(outputDir, carrier), readback: 'passed' };
+    },
     withAcceptedPublication: async function withAcceptedPublication(input){
       const {extraction,gameDir,commit,signal}=input,binding=extraction?.binding;
       if(typeof commit!=='function'||!binding?.validationId)throw new Error('接受成果发布需要宿主证明与提交回调');
@@ -1022,7 +1046,7 @@ export async function createAdapterLab({ dataDir, workspaceFor, trustedTools = {
         return { valid: true, unitCount: binding.units.length };
       }
       if (command === 'roundtrip') {
-        const validation = await lab.validateAdapter({ candidateId: binding.candidateId, gameDir: binding.gameDir, signal });
+        const validation = await lab.validateAdapter({ candidateId: binding.candidateId, gameDir: binding.sourceView?.originalGameDir ?? binding.gameDir, signal });
         if (!validation.passed) throw new Error(validation.error?.message || '原样往返验证未通过');
         return { passed: true, ...validation.checks, runtime: validation.runtime };
       }

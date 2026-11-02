@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { taskPrompt } from './provider.mjs';
 import { decodeTextResponse } from './text-wire.mjs';
 import { buildStoryContext } from '../exchange/story.mjs';
+import { createTextCapacityPlanner, textRequestEstimate, textRequestLimits } from './text-capacity.mjs';
 import {
   collectRequestReferences,
   createRequestReferenceSelector,
@@ -243,8 +244,27 @@ test('differential proofreading and scoped preparation use explicit internal pro
   assert.equal(payload.preparation[0].receipts, undefined);
   const ref = prompt.wire.state.entries.find(([, id]) => id === units[0].id)[0];
   assert.deepEqual(decodeTextResponse({ reviewed: [ref] }, prompt.wire).review.edits, []);
-  assert.match(taskPrompt('translation', units, 'zh-Hans').system, /equivalence.*fromUnitId.*toUnitIds/);
-  assert.doesNotMatch(prompt.system, /初翻时可顺手附 terms/);
+  const translation = taskPrompt('translation', units, 'zh-Hans', [], [], { preparation });
+  assert.match(`${translation.system}\n${translation.prompt}`, /equivalence.*fromUnitId.*toUnitIds/);
+  const ordinary = taskPrompt('translation', units, 'zh-Hans');
+  assert.doesNotMatch(`${ordinary.system}\n${ordinary.prompt}`, /equivalence|fromUnitId|toUnitIds/);
+  for (const field of ['terms', 'read', 'decisions']) assert.ok(`${ordinary.system}\n${ordinary.prompt}`.includes(`"${field}"`));
+  assert.doesNotMatch(`${prompt.system}\n${prompt.prompt}`, /"terms":/);
+});
+
+test('optional reuse metadata remains decodable without an existing preparation decision', () => {
+  const units = [makeUnit(1, { source: 'Same complete sentence.' }), makeUnit(2, { source: 'Same complete sentence.' })];
+  const prompt = taskPrompt('translation', units, 'zh-Hans');
+  const refs = new Map(prompt.wire.state.entries.map(([ref, id]) => [id, ref]));
+  const response = decodeTextResponse({ text: units.map(unit => [refs.get(unit.id), '同一句完整译文。']), decisions: [{
+    entity: 'Complete sentence', sense: 'same meaning', scope: { unitIds: units.map(unit => refs.get(unit.id)) },
+    translation: '同一句完整译文。', evidenceIds: units.map(unit => refs.get(unit.id)),
+    equivalence: { fromUnitId: refs.get(units[0].id), toUnitIds: [refs.get(units[1].id)] },
+  }] }, prompt.wire);
+  assert.equal(prompt.wire.payload.preparation, undefined);
+  assert.deepEqual(response.semanticDecisions[0].equivalence, { fromUnitId: units[0].id, toUnitIds: [units[1].id] });
+  assert.deepEqual(response.semanticDecisions[0].scope.unitIds, units.map(unit => unit.id));
+  assert.deepEqual(response.semanticDecisions[0].evidenceIds, units.map(unit => unit.id));
 });
 
 test('initial translation keeps names in ordinary batches and normalizes optional choices with the same text response', () => {
@@ -257,8 +277,10 @@ test('initial translation keeps names in ordinary batches and normalizes optiona
     const prompt = taskPrompt('translation', batch, 'zh-Hans');
     assert.equal(prompt.wire.payload.task, 'translation');
     assert.deepEqual(prompt.wire.payload.units.map(unit => unit.id), batch.map(unit => unit.id));
-    assert.match(prompt.system, /初翻时可顺手附 terms/);
-    assert.doesNotMatch(prompt.system, /专名编辑|收录规则/);
+    const material = `${prompt.system}\n${prompt.prompt}`;
+    assert.match(material, /【按需能力】[\s\S]*"terms":\[\[/);
+    assert.match(material, /原词和译名必须分别出现在对应正文[\s\S]*遗漏无需补交或重译/);
+    assert.doesNotMatch(material, /专名编辑|收录规则/);
     const refs = new Map(prompt.wire.state.entries.map(([ref, id]) => [id, ref]));
     const response = decodeTextResponse({ text: batch.map(unit => [refs.get(unit.id), '爱丽丝来了。']),
       terms: batch.map(unit => [refs.get(unit.id), 'Alice', '爱丽丝']) }, prompt.wire);
@@ -266,4 +288,48 @@ test('initial translation keeps names in ordinary batches and normalizes optiona
     assert.ok(response.records.every(record => record.termChoices[0].translation === '爱丽丝'));
     assert.equal(response.termWarnings, undefined);
   }
+});
+
+test('successful differential review hints combine more whole groups while retaining hard request limits', () => {
+  const connection = { baseUrl: 'https://neutral.invalid/v1', model: 'neutral', contextWindow: 32768, maxOutputTokens: 1800 };
+  const groups = Array.from({ length: 40 }, (_, index) => [makeUnit(index, { source: 'Full neutral paragraph. '.repeat(7),
+    translation: 'Existing complete neutral text. '.repeat(8), context: {} })]);
+  const capacityPlanner = createTextCapacityPlanner(), options = { connection, role: 'proofreading', targetLanguage: 'zh-Hans',
+    referenceSelector: () => [], promptOptions: { reviewProtocol: true }, allUnits: [] };
+  const cold = packRequestBatches(groups, options);
+  for (let index = 0; index < 3; index++) capacityPlanner.observe({ connection, role: 'proofreading', targetLanguage: 'zh-Hans',
+    units: cold[0], outputTokens: 20, complete: true, validated: true, finishReason: 'stop' });
+  const warm = packRequestBatches(groups, { ...options, capacityPlanner });
+  assert.ok(warm[0].length > cold[0].length);
+  assert.deepEqual(warm.flat(), groups.flat());
+  const limits = textRequestLimits(connection);
+  for (const batch of warm) {
+    const prompt = taskPrompt('proofreading', batch, 'zh-Hans', [], [], { reviewProtocol: true, maxCharacters: limits.maxCharacters });
+    const estimate = textRequestEstimate(prompt, batch, limits, { ...options, capacityPlanner });
+    assert.equal(estimate.overLimit, false);
+    assert.ok(estimate.estimatedInputTokens + connection.maxOutputTokens <= connection.contextWindow);
+    assert.ok(estimate.estimatedOutputTokens + estimate.reasoningReserve <= connection.maxOutputTokens);
+  }
+  const linked = [makeUnit('a', { source: 'A'.repeat(1500), translation: 'A'.repeat(1500), context: { syncGroup: 'complete' } }),
+    makeUnit('b', { source: 'B'.repeat(1500), translation: 'B'.repeat(1500), context: { syncGroup: 'complete' } })];
+  assert.throws(() => packRequestBatches([linked], { ...options, capacityPlanner }), error => {
+    assert.equal(error.code, 'TEXT_GROUP_CAPACITY_EXCEEDED');
+    assert.deepEqual(error.unitIds, linked.map(value => value.id)); return true;
+  }, 'A learned sparse review must still reject a complete group that cannot fit a full revision');
+});
+
+test('high actual output and truncation cannot ship an isolated group above the output estimate', () => {
+  const connection = { baseUrl: 'https://neutral.invalid/v1', model: 'neutral', contextWindow: 32768, maxOutputTokens: 1800 };
+  const group = [makeUnit(1, { source: 'A'.repeat(1200), translation: 'A'.repeat(1200), context: {} })];
+  const capacityPlanner = createTextCapacityPlanner(), options = { connection, capacityPlanner, role: 'proofreading',
+    targetLanguage: 'zh-Hans', referenceSelector: () => [], promptOptions: { reviewProtocol: true }, allUnits: [] };
+  assert.equal(packRequestBatches([group], options).length, 1);
+  for (let index = 0; index < 3; index++) capacityPlanner.observe({ ...options, units: group, complete: true, validated: true,
+    finishReason: 'stop', outputTokens: 1700 });
+  assert.throws(() => packRequestBatches([group], options), { code: 'TEXT_GROUP_CAPACITY_EXCEEDED' });
+  const prior = capacityPlanner.estimate({ ...options, units: group });
+  capacityPlanner.observe({ ...options, finishReason: 'length' });
+  assert.ok(capacityPlanner.estimate({ ...options, units: group }) >= prior);
+  assert.throws(() => packRequestBatches([group], options), { code: 'TEXT_GROUP_CAPACITY_EXCEEDED' },
+    'Truncation must not forget a high actual output and accidentally expand the next request');
 });

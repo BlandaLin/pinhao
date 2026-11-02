@@ -3,13 +3,14 @@ import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { xp3TextProfile } from './xp3-format.mjs';
+import { tableProfile } from './table-format.mjs';
 
 export const FORMAT_CAPABILITY_PROTOCOL = 'pinhao-format-capability-1';
 export const FORMAT_PLAN_PROTOCOL = 'pinhao-format-plan-1';
 const canonical = value => Array.isArray(value) ? value.map(canonical) : value && typeof value === 'object' && !Buffer.isBuffer(value) ? Object.fromEntries(Object.entries(value).sort(([a],[b])=>a.localeCompare(b)).map(([key,item])=>[key,canonical(item)])) : value;
 export const formatDigest = value => createHash('sha256').update(typeof value === 'string' || Buffer.isBuffer(value) ? value : JSON.stringify(canonical(value))).digest('hex');
 export const formatFailure = (code, message, details = {}) => Object.assign(new Error(message), { code, evidence: { format: 'pinhao-capability-gap-1', status: /UNSUPPORTED|MISSING|REQUIRED|REVOKED|STALE/.test(code) ? 'unsupported' : 'failed', ...details } });
-const spans = new Set(['.txt','.csv','.tsv','.js','.mjs','.cjs','.gd','.py','.rpy','.rb','.tscn','.tres']);
+const spans = new Set(['.txt','.js','.mjs','.cjs','.gd','.py','.rpy','.rb','.tscn','.tres']);
 const requiredClaims = Object.freeze(['structure', 'targets', 'preservation']);
 const freeze = value => {
   if (!value || typeof value !== 'object') return value;
@@ -21,10 +22,12 @@ const locatorType = locator => typeof locator?.pointer === 'string' ? 'json-poin
   : Array.isArray(locator?.nativePath) ? 'native-path' : 'unknown';
 
 export const FORMAT_KERNEL_FILES = ['literal-structure.mjs', 'adapter-lab.mjs', '../embedded-command-contract.mjs',
-  '../embedded-consumer-chain.mjs', 'format-capabilities.mjs', 'format-verification.mjs', 'xp3-format.mjs'];
+  '../embedded-consumer-chain.mjs', 'format-capabilities.mjs', 'format-verification.mjs', 'xp3-format.mjs', 'table-format.mjs',
+  'table-adapter.mjs', '../native-embedded.mjs', '../../runtime/rpgmaker-plugins.mjs'];
 
 /** Bundlers embed the exact source identities before relocating the modules. */
 export async function readFormatKernelIdentity() {
+  if (typeof __PINHAO_FORMAT_KERNEL__ !== 'undefined') return __PINHAO_FORMAT_KERNEL__;
   const root = path.dirname(fileURLToPath(import.meta.url));
   const content = {};
   for (const file of FORMAT_KERNEL_FILES) content[file] = formatDigest(await readFile(path.resolve(root, file)));
@@ -41,6 +44,7 @@ export async function createFormatCapabilities({ profiles = [] } = {}) {
     { capabilityId: 'builtin-utf8-span', profileFamily: 'utf8-text', locatorContracts: ['utf8-span'], claims: requiredClaims, integrationModes: ['independent', 'utf8-span'], limits: { extensions: [...spans], guarantees: 'plain span / supported literal grammar; not arbitrary CSV or engine semantics' }, contentRef: { implementationDigest: content['literal-structure.mjs'] } },
     { capabilityId: 'builtin-mv-command356', profileFamily: 'mv-command356', locatorContracts: ['json-pointer'], claims: requiredClaims, integrationModes: ['independent', 'json-pointer'], limits: { mapping: ['one-argument','joined-range-before-tail'], qualifiedActiveConsumersRequired: true }, contentRef: { implementationDigest: content['../embedded-command-contract.mjs'] } },
     xp3TextProfile({ implementationDigest: content['xp3-format.mjs'] }),
+    tableProfile({ implementationDigest: content['table-format.mjs'] }),
   ].map(item => freeze({ ...item, contentRef:{...item.contentRef,hostKernelDigest}, protocolVersion: FORMAT_CAPABILITY_PROTOCOL, qualificationRef: `host-builtin:${item.capabilityId}:${hostKernelDigest.slice(0,24)}` }));
   const extensions = profiles.map(profile => {
     if (!profile || typeof profile.match !== 'function' || typeof profile.verify !== 'function' || typeof profile.identity !== 'function'

@@ -19,6 +19,38 @@ const within = (root, file) => {
   const relative = path.relative(root, file);
   return relative === '' || relative !== '..' && !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative);
 };
+const archiveReadFormats = ['zip', 'xp3', 'rgss', 'rgssad', 'rgss2a', 'rgss3a', 'pck', 'asar'];
+const archiveWriteFormats = ['zip', 'xp3', 'rgss', 'rgssad', 'pck'];
+const archiveMember = value => {
+  if (typeof value !== 'string' || !value || path.isAbsolute(value) || value.includes(':')
+      || value.split(/[\\/]/).some(part => !part || part === '.' || part === '..')) throw new Error('归档成员需要相对路径');
+  return value.replaceAll('\\', '/');
+};
+function archiveOptions(args, indexOnly = false) {
+  if (!Array.isArray(args) || !args.length) throw new Error('需要归档相对路径');
+  const result = { file: archiveMember(args[0]), offset: 0, limit: 50 };
+  let start = 1;
+  if (args[1] && !args[1].startsWith('--')) {
+    if (!archiveReadFormats.includes(args[1])) throw new Error('归档格式无效');
+    result.format = args[1]; start++;
+  }
+  const seen = new Set();
+  for (let i = start; i < args.length; i += 2) {
+    const key = args[i], value = args[i + 1];
+    if (!(indexOnly ? ['--offset', '--limit', '--contains'] : ['--files']).includes(key) || value === undefined || seen.has(key)) throw new Error('归档参数无效');
+    seen.add(key);
+    if (key === '--files') {
+      const files = JSON.parse(value);
+      if (!Array.isArray(files) || !files.length) throw new Error('归档成员选择不能为空');
+      result.files = [...new Set(files.map(archiveMember))].sort();
+      if (new Set(result.files.map(file => file.toLowerCase())).size !== result.files.length) throw new Error('归档成员在 Windows 上重名');
+    } else if (key === '--contains') result.contains = value;
+    else result[key.slice(2)] = Number(value);
+  }
+  if (!Number.isSafeInteger(result.offset) || result.offset < 0 || !Number.isSafeInteger(result.limit) || result.limit < 1 || result.limit > 100) throw new Error('归档分页范围无效');
+  return result;
+}
+const validArchiveOptions = (args, indexOnly = false) => { try { archiveOptions(args, indexOnly); return true; } catch { return false; } };
 
 async function releaseSuccessfulSample({ sampleDir, reviewDir, reviewRoot, signal }) {
   if (signal?.aborted) return { status: 'retained', reason: 'cancelled' };
@@ -103,6 +135,7 @@ export function createNativeTools({ worker }) {
   const cache = new Map();
   const sourceMetadata = new Map(), sourceBaselines = new Map(), materializedSources = new Map();
   const reviews = new Map();
+  const archiveCatalogs = new Map();
   const reviewAnswers = new Map(), reviewWorkbenches = new Map();
   const seeded = new WeakSet();
   const call = async (command, input, signal) => {
@@ -211,16 +244,35 @@ export function createNativeTools({ worker }) {
     record.validation = validation;
     return record;
   };
-  const formats = ['zip', 'xp3', 'rgss', 'rgssad', 'pck'];
-  const archiveInput = args => args.length >= 1 && args.length <= 2 && (!args[1] || formats.includes(args[1]));
-  const resolveArchive = async ({ gameDir, workDir, container, signal }) => {
+  const indexArchive = async ({ gameDir, workDir, container, signal }) => {
+    signal?.throwIfAborted();
     const archive = await checkedPath(gameDir, container.file);
+    const version = await stamp(archive), key = JSON.stringify([archive, container.format ?? '']);
+    const known = archiveCatalogs.get(key);
+    const owner = path.resolve(workDir ?? gameDir);
+    if (known?.version === version) { known.owners.add(owner); return known.catalog; }
+    const catalog = await call('native_unpack', { archive, indexOnly: true, ...(container.format ? { format: container.format } : {}) }, signal);
+    if (await stamp(archive) !== version) throw Object.assign(new Error('归档在读取目录时发生变化，请重新查看目录'), { code: 'SOURCE_CHANGED' });
+    if (!Array.isArray(catalog.members) || !/^[a-f0-9]{64}$/.test(catalog.archiveHash)) throw new Error('归档目录缺少可信成员身份');
+    archiveCatalogs.set(key, { version, catalog, owners: new Set([owner]) });
+    return catalog;
+  };
+  const resolveArchive = async ({ gameDir, workDir, container, files, signal }) => {
+    const archive = await checkedPath(gameDir, container.file), version = await stamp(archive);
+    const selected = files === undefined ? undefined : archiveOptions([container.file, '--files', JSON.stringify(files)]).files;
     const archiveHash = await fileHash(archive);
-    const artifactId = `archive-${hash(JSON.stringify([container.file, container.format ?? '', archiveHash])).slice(0, 40)}`;
+    const sidecars = [];
+    if ((container.format ?? path.extname(container.file).slice(1)) === 'asar') {
+      const catalog = await indexArchive({ gameDir, workDir, container, signal });
+      for (const entry of catalog.members.filter(row => row.unpacked && (!selected || selected.includes(row.path)))) {
+        sidecars.push([entry.path, await stamp(await checkedPath(`${archive}.unpacked`, entry.path))]);
+      }
+    }
+    const artifactId = `archive-${hash(JSON.stringify(['v3', container.file, container.format ?? '', archiveHash, selected ?? null, sidecars])).slice(0, 40)}`;
     const outputDir = path.join(workDir, 'native-archives', artifactId);
     await mkdir(path.dirname(outputDir), { recursive: true });
-    const unpacked = await call('native_unpack', { archive, outputDir, ...(container.format ? { format: container.format } : {}) }, signal);
-    if (unpacked.archiveHash !== archiveHash) throw new Error('归档在解包期间发生变化，请从当前基线继续');
+    const unpacked = await call('native_unpack', { archive, outputDir, ...(container.format ? { format: container.format } : {}), ...(selected ? { files: selected } : {}) }, signal);
+    if (unpacked.archiveHash !== archiveHash || await stamp(archive) !== version) throw new Error('归档在解包期间发生变化，请从当前基线继续');
     return { ...unpacked, artifactId, archiveHash, sourceDir: await realpath(unpacked.outputDir ?? outputDir), container: { file: container.file, format: unpacked.format ?? container.format } };
   };
   const repackArchive = async ({ gameDir, container, inputDir, outputFile, signal }) => {
@@ -314,6 +366,7 @@ export function createNativeTools({ worker }) {
   };
   return {
     materializeSource,
+    indexArchive,
     resolveArchive,
     repackArchive,
     resolveFinalView,
@@ -413,6 +466,10 @@ export function createNativeTools({ worker }) {
     // Release only after the task and its concurrent tools have settled.
     release({ workDir } = {}) {
       const root = workDir === undefined ? undefined : path.resolve(workDir);
+      for (const [key, entry] of archiveCatalogs) {
+        for (const owner of entry.owners) if (root === undefined || within(root, owner)) entry.owners.delete(owner);
+        if (!entry.owners.size) archiveCatalogs.delete(key);
+      }
       for (const key of sourceMetadata.keys()) if (root === undefined || within(root, key)) sourceMetadata.delete(key);
       for (const key of materializedSources.keys()) if (root === undefined || within(root, JSON.parse(key)[1])) materializedSources.delete(key);
       if (root === undefined) sourceBaselines.clear();
@@ -437,14 +494,27 @@ export function createNativeTools({ worker }) {
       cache.set(path.resolve(workDir), record);
     },
     trustedTools: {
-      native_unpack: { version: 'pinhao-archive-tools-v2', description: '使用成熟编解码器解包归档，返回已落盘成员及保留在原档中的 opaqueMembers；同输入自动复用工件', argsHint: '["data.xp3","xp3"]；第二项格式可省略', validateArgs: archiveInput,
-        capabilities: { protocol: 1, operation: 'unpack', formats, results: ['archive-members-v1', 'utf8-span', 'json-pointer'], preservesMembers: true }, timeoutMs: 900000,
+      native_archive_index: { version: 'pinhao-archive-tools-v3', description: '只读归档成员目录，不展开媒体；分页查看成员大小、可落盘状态及实际重包能力，随后用 native_unpack --files 选择成员', argsHint: '["data.xp3","xp3","--contains",".ks","--offset","0","--limit","50"]；格式可省略', validateArgs: args => validArchiveOptions(args, true),
+        capabilities: { protocol: 1, operation: 'index', formats: archiveReadFormats, materializesFiles: false }, timeoutMs: 900000,
         execute: async ({ args, ...input }) => {
-          const artifact = await resolveArchive({ ...input, container: { file: args[0], format: args[1] } });
-          return { artifactId: artifact.artifactId, format: artifact.format, archiveHash: artifact.archiveHash, memberRoot: path.relative(input.workDir, artifact.sourceDir).replaceAll(path.sep, '/'), members: artifact.members, reused: artifact.reused };
+          const query = archiveOptions(args, true), catalog = await indexArchive({ ...input, container: query });
+          const rows = query.contains ? catalog.members.filter(row => row.path.toLowerCase().includes(query.contains.toLowerCase())) : catalog.members;
+          const members = rows.slice(query.offset, query.offset + query.limit);
+          return { ...catalog, members, total: rows.length, offset: query.offset, limit: query.limit,
+            nextOffset: query.offset + members.length < rows.length ? query.offset + members.length : null,
+            filter: query.contains ?? null, nextAction: 'native_unpack --files 读取选中成员；重包必须引用同一原档' };
         } },
-      native_repack: { version: 'pinhao-archive-tools-v2', description: '将工作目录中的修改重新封包，保留原归档中其余成员（包括 opaqueMembers），并逐成员读回校验', argsHint: '["native-archives/archive-id","output/data.xp3","xp3","data.xp3"]', validateArgs: args => args.length === 4 && formats.includes(args[2]),
-        capabilities: { protocol: 1, operation: 'repack', formats, preservesMembers: true, memberReadback: true }, timeoutMs: 900000,
+      native_unpack: { version: 'pinhao-archive-tools-v3', description: '解包归档或指定成员，返回已落盘成员、opaqueMembers和完整性；未选择成员保留在原档，同输入及相同选择复用工件。ASAR只读展开，RGSS原格式重包仅v1', argsHint: '["data.xp3","xp3","--files","[\"scenario/a.ks\"]"]；格式和--files可省略，先用native_archive_index查看目录', validateArgs: args => validArchiveOptions(args),
+        capabilities: { protocol: 1, operation: 'unpack', formats: archiveReadFormats, results: ['archive-members-v1', 'utf8-span', 'json-pointer'], preservesMembers: true, selection: true }, timeoutMs: 900000,
+        execute: async ({ args, ...input }) => {
+          const query = archiveOptions(args), artifact = await resolveArchive({ ...input, container: query, files: query.files });
+          return { artifactId: artifact.artifactId, format: artifact.format, archiveHash: artifact.archiveHash, memberRoot: path.relative(input.workDir, artifact.sourceDir).replaceAll(path.sep, '/'),
+            members: artifact.members, opaqueMembers: artifact.opaqueMembers ?? [], archiveMembers: artifact.archiveMembers,
+            selectedFiles: artifact.selectedFiles ?? null, completeFilesystemView: artifact.completeFilesystemView,
+            unselectedMembers: artifact.unselectedMembers, capabilities: artifact.capabilities, reused: artifact.reused };
+        } },
+      native_repack: { version: 'pinhao-archive-tools-v3', description: '将修改覆盖层与同一原归档合并，保留所有未展开/未改成员并逐成员回读；ASAR不支持原格式重包，RGSS仅v1，PCK需要固定工具', argsHint: '["native-archives/archive-id","output/data.xp3","xp3","data.xp3"]', validateArgs: args => args.length === 4 && archiveWriteFormats.includes(args[2]),
+        capabilities: { protocol: 1, operation: 'repack', formats: archiveWriteFormats, preservesMembers: true, memberReadback: true }, timeoutMs: 900000,
         execute: async ({ args, gameDir, workDir, signal }) => {
           const inputDir = await checkedPath(workDir, args[0], { directory: true });
           const outputFile = await checkedPath(workDir, args[1], { write: true });

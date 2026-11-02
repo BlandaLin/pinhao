@@ -3,7 +3,7 @@ import { lstat, readFile } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
 import path from 'node:path';
 
-const fields = new Set(['id', 'file', 'source', 'initial_value', 'controls', 'kind', 'targets', 'pointer', 'locator']);
+const fields = new Set(['id', 'file', 'source', 'initial_value', 'controls', 'kind', 'targets', 'pointer', 'locator', 'rgss_script', 'embedded']);
 const selected = parts => !parts.length || parts[0] === 'schema' || parts[0] === 'files'
   || parts[0] === 'units' && (parts.length <= 2 || fields.has(parts[2])
     || parts[2] === 'contexts' && (parts.length <= 4 || parts[4] === 'path'));

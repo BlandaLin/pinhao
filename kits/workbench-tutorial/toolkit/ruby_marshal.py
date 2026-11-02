@@ -161,6 +161,22 @@ class Reader:
         result.append(self.raw[pos:])
         return b''.join(result)
 
+    def patch_raw(self, replacements):
+        """Replace binary payload slots without treating compressed data as UTF-8."""
+        spans = [(value.start, value.end, long_bytes(len(replacements[value.index])) + replacements[value.index])
+                 for value in self.strings if value.index in replacements]
+        if len(spans) != len(replacements):
+            raise ValueError('Native script slot was not found')
+        output, pos = [], 0
+        for start, end, replacement in sorted(spans):
+            output.extend((self.raw[pos:start], replacement))
+            pos = end
+        output.append(self.raw[pos:])
+        raw = b''.join(output)
+        if structure(Reader(raw).root) != structure(self.root, replacements):
+            raise ValueError('Script container changed beyond the selected payload')
+        return raw
+
 
 def structure(value, replacements=None, seen=None):
     seen = {} if seen is None else seen

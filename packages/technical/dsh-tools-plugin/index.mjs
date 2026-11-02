@@ -3,7 +3,7 @@ import { readFile } from 'node:fs/promises';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
 export const name = 'pinhao-business-tools';
-export const inject = ['tools', 'agents', 'loader', 'pluginPackages', 'systemPrompt', 'llm'];
+export const inject = ['tools', 'agents', 'loader', 'pluginPackages', 'systemPrompt', 'llm', 'compaction'];
 
 /** Only protocol and identity translation live in the runtime process. */
 export async function apply(ctx) {
@@ -39,7 +39,12 @@ export async function apply(ctx) {
   await ctx.llm.resolveCallConfig({ provider: 'pinhao-relay', model: process.env.PINHAO_DSH_MODEL,
     maxTokens: Number(process.env.PINHAO_DSH_MAX_TOKENS) });
   let sharedFacts = (await request('/status')).lessons ?? '';
+  let strategy = '', recoverTruncation = false;
   ctx.systemPrompt.section({ name: 'pinhao-shared-facts', order: 100, text: () => sharedFacts, interpolate: false });
+  ctx.systemPrompt.section({ name: 'pinhao-host-review', order: 101, text: () => strategy, interpolate: false });
+  ctx.on('session/event', (session, event) => {
+    if (session.id === sessionId && event.type === 'turn/end' && event.data?.reason?.kind === 'max-tokens') recoverTruncation = true;
+  });
   ctx.on('agent/created', async ({ agent, source }) => {
     if (agent.id !== sessionId) throw new Error('Unexpected agent in a single-job runtime');
     const expected = process.env.PINHAO_DSH_PENDING_PROMPT_HASH;
@@ -83,9 +88,14 @@ export async function apply(ctx) {
   // Business completion, not a model's final sentence, owns the stop boundary.
   ctx.on('agent/pre-step', async ({ agent, signal }, next) => {
     if (agent.id !== sessionId) return { kind: 'reject' };
-    const status = await request('/status', undefined, signal);
+    const status = await request('/step', {}, signal);
     sharedFacts = status.lessons ?? '';
+    strategy = status.strategy ?? '';
     if (status.done) return { kind: 'reject' };
+    if (recoverTruncation) {
+      recoverTruncation = false;
+      await ctx.compaction.compactIfNeeded(agent, 'context-overflow', signal);
+    }
     return next();
   });
   ctx.provide('pinhaoBusinessTools', { registeredNames: definitions.map(definition => definition.name) });

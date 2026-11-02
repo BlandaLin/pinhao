@@ -64,7 +64,8 @@ for (const concurrency of [3, 20]) test(`SDK HTTP sends fill ${concurrency} body
       for await (const chunk of request) body += chunk;
       const input = JSON.parse(body), prompt = input.messages.find(message => message.role === 'user').content, wire = textMaterials.get(prompt);
       assert.ok(wire, 'The actual HTTP body matches captured current-wire material');
-      assert.ok(prompt.startsWith('【待处理文字】'));
+      assert.ok(prompt.startsWith('【交稿方式】'));
+      assert.ok(prompt.indexOf('【待处理文字】') > prompt.indexOf('【按需能力】'));
       const payload = wire.payload, references = new Map(wire.state.entries.map(([ref, id]) => [id, ref]));
       assert.ok(phases.includes(payload.task), 'Only body translation and its review buy requests');
       phase = payload.task;
@@ -84,18 +85,20 @@ for (const concurrency of [3, 20]) test(`SDK HTTP sends fill ${concurrency} body
       if (phase === 'proofreading' && finishedBody.size !== units.length) reviewBeforeBodyFinished = true;
       if (phase === 'translation') for (const unit of payload.units) receivedBody.set(unit.id, (receivedBody.get(unit.id) ?? 0) + 1);
       await waves[phase].enter();
+      const marker = ref => '['.repeat(wire.state.markerDepth ?? 1) + ref + ']'.repeat(wire.state.markerDepth ?? 1);
       const output = phase === 'proofreading'
-        ? { reviewed: record.ids.map(id => references.get(id)), changes: [], questions: [] }
-        : { text: payload.units.map(unit => {
+        ? marker('完成')
+        : [...payload.units.map(unit => {
           const source = unit.source;
-          return [references.get(unit.id), source.startsWith('Person') ? `人物${source.slice(6)}` : `中性译文${source.match(/\d+/)[0]}`, ''];
-        }) };
+          const translation = source.startsWith('Person') ? `人物${source.slice(6)}` : `中性译文${source.match(/\d+/)[0]}`;
+          return `${marker(references.get(unit.id))}\n${translation}`;
+        }), marker('完成')].join('\n');
       if (phase === 'translation') record.ids.forEach(id => finishedBody.add(id));
       record.respondedAt = performance.now();
       response.setHeader('content-type', 'application/json');
       response.setHeader('x-request-id', `neutral-${record.requestIndex}`);
       response.end(JSON.stringify({ id: `neutral-${record.requestIndex}`, object: 'chat.completion', created: 1, model: input.model,
-        choices: [{ index: 0, message: { role: 'assistant', content: JSON.stringify(output) }, finish_reason: 'stop' }],
+        choices: [{ index: 0, message: { role: 'assistant', content: output }, finish_reason: 'stop' }],
         usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 } }));
     } catch (error) {
       errors.push(error.message);
@@ -145,8 +148,9 @@ for (const concurrency of [3, 20]) test(`SDK HTTP sends fill ${concurrency} body
   });
   const settings = defaultSettings();
   settings.concurrency = concurrency;
+  // Keep enough independent requests for the barrier even with compact plaintext packing.
   settings.connection = { baseUrl: `http://127.0.0.1:${server.address().port}/v1`, model: 'neutral-http-model', apiKey: '',
-    contextWindow: 32768, maxOutputTokens: 1200 };
+    contextWindow: 32768, maxOutputTokens: 600 };
   await service.saveSettings(settings);
   await service.startProject({ projectId: 'neutral-http' });
   const done = await until(async () => {

@@ -26,7 +26,7 @@ export async function verifyFormatGroups({ catalog, plan, candidate, gameDir, ou
     }
     const targets = Object.fromEntries(selected.map(unit => [unit.id, translations[unit.id] ?? unit.rawSource]));
     let result;
-    try { result = await (profile.verifyFiles ?? profile.verify)({ candidate, group, before, after, beforePaths, afterPaths, units: selected, translations: targets, purpose, signal }); }
+    try { result = await (profile.verifyFiles ?? profile.verify)({ candidate, group, before, after, beforePaths, afterPaths, units: selected, translations: targets, requestedIds: selected.filter(unit => Object.hasOwn(translations, unit.id)).map(unit => unit.id), purpose, signal }); }
     catch (error) { if (signal?.aborted) throw error; if (error.code?.startsWith('FORMAT_')) throw error; throw Object.assign(new Error(`格式检查器执行失败：${error.message}`), { code: 'FORMAT_ORACLE_EXECUTION_ERROR', cause: error }); }
     if (result?.status === 'unsupported') throw formatFailure('FORMAT_UNSUPPORTED', result.message ?? '当前格式变体未被该能力覆盖');
     if (result?.status !== 'passed' || ['structure','targets','preservation','derivedFields'].some(claim => result.claims?.[claim] !== 'passed')) throw formatFailure('FORMAT_PRESERVATION_FAILED', result?.message ?? '格式检查没有完成真实目标、非目标和派生字段验证');

@@ -3,6 +3,15 @@ import assert from 'node:assert/strict';
 import { mkdir, mkdtemp, rm } from 'node:fs/promises';
 import path from 'node:path';
 import { createService, defaultSettings } from './service.mjs';
+import { decodeTextResponse } from './text-wire.mjs';
+import { parseTextBlocks } from './text-blocks.mjs';
+
+function successfulProbe({ wire }) {
+  if (!wire) return { records: [] };
+  const ref = wire.state.entries.find(([, id]) => id === wire.targetIds[0])[0];
+  const raw = wire.review ? '[完成]\n' : `[${ref}]\n连接正常\n[完成]\n`;
+  return decodeTextResponse(parseTextBlocks(raw, { finishReason: 'stop', review: wire.review }), wire);
+}
 
 test('connection tests retain safe HTTP classification and retry guidance without leaking credentials', async t => {
   const parent = path.resolve('local', 'connection-test-fixtures');
@@ -37,7 +46,7 @@ test('testing the shared connection uses its own settings when translation has a
   const service = await createService({ dataDir: directory,
     worker: async command => { assert.equal(command, 'catalog'); return { engines: [] }; },
     secrets: { encrypt: key => `fixture:${key}`, decrypt: value => value.slice(8) },
-    provider: async input => { requests.push(input); return { records: [] }; },
+    provider: async input => { requests.push(input); return successfulProbe(input); },
   });
   t.after(async () => {
     await service.close();
@@ -63,7 +72,7 @@ test('reasoning choices persist across restart, follow shared roles and remain i
   const directory = await mkdtemp(path.join(parent, 'reasoning-')), requests = [];
   const options = { dataDir: directory, worker: async () => ({ engines: [] }),
     secrets: { encrypt: key => `fixture:${key}`, decrypt: value => value.slice(8) },
-    provider: async input => { requests.push(input); return { records: [] }; } };
+    provider: async input => { requests.push(input); return successfulProbe(input); } };
   let service = await createService(options);
   t.after(async () => { await service.close(); assert.equal(path.dirname(directory), parent); await rm(directory, { recursive: true, force: true }); });
   const settings = defaultSettings();
@@ -89,7 +98,7 @@ test('model capacity persists through settings and reaches the selected technica
   await mkdir(parent, { recursive: true });
   const directory = await mkdtemp(path.join(parent, 'capacity-')), requests = [];
   const options = { dataDir: directory, worker: async () => ({ engines: [] }),
-    provider: async input => { requests.push(input.connection); return { records: [] }; } };
+    provider: async input => { requests.push(input.connection); return successfulProbe(input); } };
   let service = await createService(options);
   t.after(async () => { await service.close(); await rm(directory, { recursive: true, force: true, maxRetries: 3 }); });
   const settings = defaultSettings();
@@ -104,4 +113,31 @@ test('model capacity persists through settings and reaches the selected technica
   await assert.rejects(service.saveSettings({ ...restored, connection: { ...restored.connection, contextWindow: -1 } }), /正整数/);
   const cleared = await service.saveSettings({ ...restored, connection: { ...restored.connection, contextWindow: undefined, maxOutputTokens: undefined } });
   assert.equal(cleared.connection.contextWindow, undefined); assert.equal(cleared.connection.maxOutputTokens, undefined);
+});
+
+test('text connection probes exercise one real short-tag target and explicit review coverage without changing technical JSON', async t => {
+  const parent = path.resolve('local', 'connection-test-fixtures'); await mkdir(parent, { recursive: true });
+  const directory = await mkdtemp(path.join(parent, 'protocol-')), requests = [];
+  let invalid;
+  const service = await createService({ dataDir: directory, worker: async () => ({ engines: [] }),
+    provider: async input => { requests.push(input); return invalid ?? successfulProbe(input); } });
+  t.after(async () => { await service.close(); assert.equal(path.dirname(directory), parent);
+    await rm(directory, { recursive: true, force: true, maxRetries: 3 }); });
+  await service.saveSettings({ ...defaultSettings(), connection: { baseUrl: 'http://127.0.0.1:1/v1', model: 'neutral-probe' } });
+  for (const role of ['shared', 'translation', 'proofreading', 'technical']) {
+    assert.equal((await service.testConnection({ role })).ok, true, role);
+  }
+  for (const input of requests.slice(0, 3)) {
+    assert.deepEqual(input.wire.targetIds, ['connection-probe']);
+    assert.equal(input.wire.payload.units.length, 1); assert.ok(input.wire.payload.units[0].source.length < 100);
+    assert.ok(input.prompt.includes('[u1]')); assert.ok(!input.prompt.includes('"records":[]'));
+  }
+  assert.equal(requests[2].wire.review, true); assert.ok(`${requests[2].system}\n${requests[2].prompt}`.includes('[完成]'));
+  assert.equal(requests[3].wire, undefined); assert.ok(requests[3].system.includes('"records":[]'));
+  invalid = { records: [{ id: 'wrong-target', translation: '连接正常' }] };
+  assert.equal((await service.testConnection({ role: 'translation' })).ok, false, 'A translated unrelated ID does not validate this wire');
+  invalid = { records: [{ id: 'connection-probe', translation: '' }] };
+  assert.equal((await service.testConnection({ role: 'translation' })).ok, false, 'An empty probe is not a valid text reply');
+  invalid = { records: [], review: { protocol: 'pinhao-review-1', reviewedIds: [], edits: [], issues: [] } };
+  assert.equal((await service.testConnection({ role: 'proofreading' })).ok, false, 'Review must explicitly cover the probe target');
 });

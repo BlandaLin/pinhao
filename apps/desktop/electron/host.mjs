@@ -7,6 +7,8 @@ import { installLegacyRunner } from '../../../packages/runtime/legacy-runner.mjs
 import { copyFontLicense } from './fonts.mjs';
 import { launchManagedProcess, processEnvironment } from '../../../packages/core/managed-process.mjs';
 import { nativeWorkerError } from '../../../packages/technical/adaptation/native-failure.mjs';
+import { discoverNativeEmbedded } from '../../../packages/technical/native-embedded.mjs';
+import { readFormatKernelIdentity } from '../../../packages/technical/adaptation/format-capabilities.mjs';
 export { seedDefaultFont } from './fonts.mjs';
 
 export const serviceMethods = new Set([
@@ -83,6 +85,7 @@ export function makeWorker({ pythonPath, workerPath, toolkitPath, dependencyDir,
 
 export async function nativePipelineRevision({ workerPath, toolkitPath, toolVersionsPath }) {
   const digest = createHash('sha256');
+  digest.update('host-format-kernel\0'); digest.update(JSON.stringify(await readFormatKernelIdentity()));
   const visit = async (directory, prefix) => {
     for (const entry of (await readdir(directory, { withFileTypes: true })).sort((a, b) => a.name.localeCompare(b.name))) {
       if (entry.isSymbolicLink()) throw new Error('原生解析器资源包含链接');
@@ -104,6 +107,10 @@ export function productWorker(options) {
   const worker = makeWorker(options);
   let revision;
   const product = async (command, input, requestOptions) => {
+    if (command === 'extract' && input?.gameDir) {
+      const embeddedText = await discoverNativeEmbedded({ gameDir: input.gameDir, signal: requestOptions?.signal });
+      if (embeddedText) input = { ...input, embeddedText };
+    }
     const result = await worker(command, input, requestOptions);
     if (command === 'catalog') result.nativeRevision = createHash('sha256').update(await (revision ??= nativePipelineRevision(options))).update(JSON.stringify(result.engines)).update(result.dependencyHealth?.fingerprint ?? '').digest('hex');
     if (command === 'assemble' && result.outputDir) {

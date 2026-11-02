@@ -202,9 +202,12 @@ test('core + productWorker exports a completed MV build as JoiPlay RGA', async t
   const filePath = path.join(f.root, 'neutral-game-JoiPlay.rga');
   const exported = await f.service.exportRelease({ projectId: result.project.id, filePath, target: 'joiplay' });
   assert.equal(exported.path, filePath);
-  assert.deepEqual(exported.warnings, []);
+  assert.deepEqual(exported.warnings, ['插件 PinhaoAssist.js 引用了桌面接口，请在手机上检查对应功能']);
+  assert.equal(result.complete.builds[0].nameIdentity.status, 'needs-review', 'The placeholder fixture has no real engine getter to certify');
+  assert.equal(result.complete.builds[0].checks.find(check => check.name === '名称逻辑兼容检查').status, 'pending');
   assert.ok(f.nativeCalls.includes('mobileZip'));
   await pythonFixture('import zipfile,json;z=zipfile.ZipFile(sys.argv[1]);assert z.testzip() is None;assert "execFile=index.html" in z.read("game.cfg").decode();assert "type=html" in z.read("game.cfg").decode();assert "Game.exe" not in z.namelist();assert "save/file1.save" not in z.namelist();assert json.loads(z.read("PinHao-mobile-report.json"))["phoneRuntimeVerified"] is False', [filePath]);
+  await pythonFixture('import zipfile,json;from rpgmaker_plugins import inspect_plugins;z=zipfile.ZipFile(sys.argv[1]);report=json.loads(z.read("PinHao-mobile-report.json"));assert report["resourcePreflight"]["automaticRepairs"]==[];p=inspect_plugins(z.read("js/plugins.js").decode("utf-8-sig"));assert not p["unresolved"];assert p["plugins"][0]["name"]=="PinHaoNameIdentity";assert {"PinHaoLocalization","PinhaoAssist"}.issubset({row["name"] for row in p["plugins"]})', [filePath]);
 });
 
 for (const bundle of [false, true]) test(`core + productWorker rebuilds Unity ${bundle ? 'UnityFS' : 'SerializedFile'} text into its native carrier`, async t => {

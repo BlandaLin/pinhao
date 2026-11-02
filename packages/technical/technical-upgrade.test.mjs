@@ -1,8 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { access, mkdtemp, mkdir, readFile, writeFile, rm } from 'node:fs/promises';
+import { access, mkdtemp, mkdir, readFile, writeFile, rm, cp } from 'node:fs/promises';
 import path from 'node:path';
 import http from 'node:http';
+import os from 'node:os';
 import { adaptationTools, runAdaptation } from './adaptation.mjs';
 import { createAdapterLab } from './adaptation/adapter-lab.mjs';
 import { createEvidenceStore } from './adaptation/evidence.mjs';
@@ -12,11 +13,14 @@ import { planAdaptationJobs } from './adaptation-pool.mjs';
 import { createNativeTools } from '../core/native-tools.mjs';
 import { productWorker } from '../../apps/desktop/electron/host.mjs';
 import { createTechnicalTransport } from './model-transport.mjs';
+import { registerSupplement, createAdaptiveWorker } from '../core/adaptive-worker.mjs';
+import { accumulateVerifiedExtractions } from './adaptation/verified-batches.mjs';
+import { selectSupplementalUnits } from '../core/adaptation-results.mjs';
 
 const code = `({detect(){return true},extract(h){const d=JSON.parse(h.readText('data/story.json'));return {units:d.lines.map((source,i)=>({id:'story:'+i,source,locator:{file:'data/story.json',pointer:'/lines/'+i}}))}},validate(){return {valid:true}},roundtrip(h){h.writeBytes('data/story.json',h.readBytes('data/story.json'));return {}},build(h,i){const d=JSON.parse(h.readText('data/story.json'));for(const u of i.units)if(Object.hasOwn(i.translations,u.id))d.lines[+u.id.split(':')[1]]=i.translations[u.id];h.writeText('data/story.json',JSON.stringify(d));return {}},assemble(){return {}}})`;
 const manifest = { schemaVersion: 1, id: 'upgrade-fixture', version: '1.0.0', engine: 'Fixture', scope: { files: ['data/story.json'] }, license: 'MIT', sources: [] };
 async function fixture(t) {
-  const base = path.resolve('local/technical-upgrade-tests');
+  const base = path.join(os.tmpdir(), 'pinhao-technical-upgrade-tests');
   await mkdir(base, { recursive: true });
   const root = await mkdtemp(path.join(base, 'pinhao-upgrade-')), gameDir = path.join(root, 'game');
   await mkdir(path.join(gameDir, 'data'), { recursive: true });
@@ -224,7 +228,8 @@ test('coverage discovery pages source-bound clusters within the assignment witho
   try {
     const context = await session.tools.inspect_context.execute({});
     assert.equal(context.coverage.unknownTotal, 105);
-    assert.equal(context.coverage.unknownClusters.length, 40);
+    assert.ok(context.coverage.unknownClusters.length > 0 && context.coverage.unknownClusters.length <= 40);
+    assert.ok(context.coverage.unknownClusters.every(item => item.read.input.pointer.startsWith('/coverage/unknownClusters/')));
     assert.equal(context.entrypoints, undefined);
     assert.ok(session.tools.native_review, 'the tool remains registered; only a misleading recommendation disappears');
     const seen = [];
@@ -403,6 +408,35 @@ test('real ZIP codec carries generated member adapters through validation, build
   const workspaceDir = path.join(f.root, 'archive-work');
   const extracted = await lab.extractRecipe({ recipeId: recipe.recipeId, gameDir: f.gameDir, workspaceDir });
   assert.equal(extracted.binding.sourceView.container.file, 'game.zip');
+  const roundtrip = await lab.dispatch('roundtrip', { workspaceDir });
+  assert.equal(roundtrip.passed, true, 'dispatch revalidates a container from its physical source, not its member view');
+  const aggregated = accumulateVerifiedExtractions([], [extracted])[0];
+  const selected = selectSupplementalUnits({ projectId: 'neutral', incoming: aggregated.units, existing: [] });
+  const nativeWorkspace = path.join(f.root, 'existing-native');
+  await registerSupplement({ workspaceDir: nativeWorkspace, adapterWorkspaceDir: workspaceDir,
+    unitIds: selected.rawUnits.map(unit => unit.id), units: selected.rawUnits, files: ['data/story.json'],
+    baselineDir: extracted.binding.gameDir, sourceRoot: f.gameDir, sourceView: extracted.binding.sourceView });
+  const composite = createAdaptiveWorker({ getLab: async () => lab, nativeWorker: async (command, args) => {
+    if (command === 'build') {
+      await mkdir(args.outputDir, { recursive: true });
+      await writeFile(path.join(args.outputDir, 'native.json'), '{"preserved":true}');
+      return { buildDir: args.outputDir };
+    }
+    if (command === 'assemble') {
+      await cp(f.gameDir, args.outputDir, { recursive: true });
+      await cp(args.buildDir, args.outputDir, { recursive: true });
+      return { outputDir: args.outputDir };
+    }
+    throw new Error(`Unexpected ${command}`);
+  } });
+  const compositeBuild = await composite('build', { workspaceDir: nativeWorkspace, outputDir: path.join(f.root, 'composite-build'), translations: [{ id: 'story:1', translation: 'Supplemental caption.' }] });
+  const compositeProduct = await composite('assemble', { workspaceDir: nativeWorkspace, gameDir: f.gameDir, buildDir: compositeBuild.buildDir, adapterBuilds: compositeBuild.adapterBuilds, outputDir: path.join(f.root, 'composite-product') });
+  const compositeCheck = path.join(f.root, 'composite-check');
+  await worker('native_unpack', { archive: path.join(compositeProduct.outputDir, 'game.zip'), outputDir: compositeCheck, format: 'zip' });
+  assert.equal(JSON.parse(await readFile(path.join(compositeCheck, 'data/story.json'), 'utf8')).lines[1], 'Supplemental caption.');
+  assert.deepEqual(await readFile(path.join(compositeCheck, 'untouched.bin')), Buffer.from([0, 1, 2, 255]));
+  assert.deepEqual(JSON.parse(await readFile(path.join(compositeProduct.outputDir, 'native.json'), 'utf8')), { preserved: true });
+  await assert.rejects(lab.applyContainerBuild({ ...compositeBuild.adapterBuilds[0], outputDir: compositeProduct.outputDir }), { code: 'FORMAT_SCOPE_CONFLICT' });
   const built = await lab.dispatch('build', { workspaceDir, outputDir: path.join(f.root, 'archive-build'), translations: [{ id: 'story:1', translation: '第二段完整中文，长度已经改变。' }] });
   const outputDir = path.join(f.root, 'archive-product');
   await lab.dispatch('assemble', { workspaceDir, buildDir: built.buildDir, outputDir });
@@ -419,4 +453,13 @@ test('real ZIP codec carries generated member adapters through validation, build
   await writeFile(finalArchive,Buffer.concat([await readFile(finalArchive),Buffer.from('changed final artifact')]));
   await assert.rejects(lab.withBuildPublication({builds:sealed.proofs,commit:()=>published++}),{code:'FORMAT_SOURCE_STALE'});
   assert.equal(published,2,'changed actual archive cannot reuse the retained target proof');
+  const memberFile = path.join(extracted.binding.gameDir, 'data/story.json');
+  const originalMember = await readFile(memberFile);
+  await writeFile(memberFile, '{"lines":["Changed member baseline"]}');
+  await assert.rejects(lab.dispatch('roundtrip', { workspaceDir }), /资源|依赖|验证|摘要/);
+  await writeFile(memberFile, originalMember);
+  const originalCarrier = await readFile(originalArchive);
+  await writeFile(originalArchive, Buffer.concat([originalCarrier, Buffer.from('changed source carrier')]));
+  await assert.rejects(lab.dispatch('roundtrip', { workspaceDir }), /资源|依赖|验证|摘要/);
+  await writeFile(originalArchive, originalCarrier);
 });

@@ -5,7 +5,7 @@ import { isDeepStrictEqual } from 'node:util';
 import { createReadStream } from 'node:fs';
 import { checkedPath, independentRoot, ensureRoot } from '../technical/adaptation/paths.mjs';
 import { mergeAdapterResource } from './adapter-merge.mjs';
-import { adaptationLocationKey } from './adaptation-results.mjs';
+import { adaptationUnitLocationKey } from './adaptation-results.mjs';
 import { isPrivateGamePath } from './private-paths.mjs';
 import { formatDigest, formatFailure } from '../technical/adaptation/format-capabilities.mjs';
 
@@ -39,9 +39,16 @@ export async function readSupplementManifest(workspaceDir, ref) {
   return value;
 }
 
-export async function registerSupplement({ workspaceDir, adapterWorkspaceDir, unitIds, units, files, baselineDir, sourceRoot, resourceRoot = '.', replaceVerified = false, prepareOnly = false, currentManifestRef, verificationPlan }) {
+export async function registerSupplement({ workspaceDir, adapterWorkspaceDir, unitIds, units, files, baselineDir, sourceRoot, resourceRoot = '.', replaceVerified = false, prepareOnly = false, currentManifestRef, verificationPlan, sourceView }) {
   const record = { workspaceDir: path.resolve(adapterWorkspaceDir), unitIds, units, files: [...new Set(files.map(relativeFile))], baselineDir: path.resolve(baselineDir ?? sourceRoot), sourceRoot: path.resolve(sourceRoot), resourceRoot };
   if (verificationPlan) record.verificationPlan = verificationPlan;
+  if (sourceView) {
+    record.sourceView = sourceView;
+    const carrier = relativeFile(sourceView.container?.file);
+    const bytes = await readFile(await checkedPath(sourceView.originalGameDir, carrier));
+    if (formatDigest(bytes) !== sourceView.archiveHash) throw formatFailure('FORMAT_SOURCE_STALE', '容器基线已变化');
+    record.carrierHashes = { [carrier]: sourceView.archiveHash };
+  }
   for (const group of verificationPlan?.writeGroups ?? []) {
     if (group.integrationMode !== 'exclusive-resource-group' || group.unitIds.some(id => !unitIds.includes(id)) || group.writeSet.some(file => !record.files.includes(file))) throw formatFailure('FORMAT_SCOPE_CONFLICT', '补充接入必须保留已验证格式组的全部文字与派生写入文件，不能仅截取部分目标');
   }
@@ -55,12 +62,13 @@ export async function registerSupplement({ workspaceDir, adapterWorkspaceDir, un
     if (previous.format !== 'pinhao-composite-adapter-1' || !Array.isArray(previous.adapters)) throw new Error('补充适配绑定格式有误');
     adapters = previous.adapters;
   } catch (error) { if (error.code !== 'ENOENT') throw error; }
-  const identity = unit => unit && { location: adaptationLocationKey(unit.locator, unit.locator?.file, unit.context?.formatBinding), source: unit.source, rawSource: unit.rawSource ?? unit.source,
+  const identity = unit => unit && { location: adaptationUnitLocationKey(unit), source: unit.source, rawSource: unit.rawSource ?? unit.source,
     controls: Object.fromEntries(Object.entries(unit.controls ?? {}).sort(([a], [b]) => a.localeCompare(b))), tokens: unit.tokens ?? [] };
   const incoming = new Map((units ?? []).map(unit => [unit.legacyId ?? unit.id, unit]));
   const overlappingIds = new Set();
   for (const previous of adapters) {
-    const sharedFiles = previous.files.filter(file => Object.hasOwn(record.baselineHashes, file));
+    const sameView = previous.sourceView?.container.file === record.sourceView?.container.file;
+    const sharedFiles = sameView ? previous.files.filter(file => Object.hasOwn(record.baselineHashes, file)) : [];
     if (sharedFiles.length) {
       const currentHashes = await hashes({ ...previous, files: sharedFiles });
       if (sharedFiles.some(file => currentHashes[file] !== record.baselineHashes[file] || previous.baselineHashes?.[file] && previous.baselineHashes[file] !== currentHashes[file])) throw new Error('补充适配资源基线已经改变');
@@ -184,8 +192,12 @@ async function mergeResources(item, nativeRoot, outputRoot, signal, previous = n
   return rows;
 }
 
-export async function applySupplementalText({ adapterBuilds = [], gameDir, buildDir, outputDir, signal }) {
-  const loose = adapterBuilds.filter(item => path.resolve(item.sourceRoot) === path.resolve(gameDir, item.resourceRoot ?? '.'));
+export async function applySupplementalText({ adapterBuilds = [], gameDir, buildDir, outputDir, signal, lab }) {
+  for (const item of adapterBuilds.filter(item => item.sourceView)) {
+    if (!lab?.applyContainerBuild) throw formatFailure('FORMAT_INTEGRATION_UNSUPPORTED', '容器补充需要宿主封包与回读能力');
+    await lab.applyContainerBuild({ ...item, outputDir: path.resolve(outputDir, item.resourceRoot ?? '.'), signal });
+  }
+  const loose = adapterBuilds.filter(item => !item.sourceView && path.resolve(item.sourceRoot) === path.resolve(gameDir, item.resourceRoot ?? '.'));
   for (const [index, item] of loose.entries()) {
     const target = path.resolve(outputDir, item.resourceRoot ?? '.');
     for (const file of item.files) await checkedPath(target, file, { write: true });
@@ -229,7 +241,7 @@ export function createAdaptiveWorker({ nativeWorker, getLab }) {
       return wrapped ? { ...native, result: { ...result, adapterBuilds } } : { ...result, adapterBuilds };
     }
     const builds = args.adapterBuilds ?? [];
-    const packed = builds.filter(item => path.resolve(item.sourceRoot) !== path.resolve(args.gameDir, item.resourceRoot ?? '.'));
+    const packed = builds.filter(item => !item.sourceView && path.resolve(item.sourceRoot) !== path.resolve(args.gameDir, item.resourceRoot ?? '.'));
     if (packed.length) {
       const overlay = path.join(path.dirname(args.buildDir), 'adaptive-overlay');
       const merged = new Map();
@@ -248,8 +260,8 @@ export function createAdaptiveWorker({ nativeWorker, getLab }) {
     if (native?.ok === false) return native;
     const wrapped = native?.ok === true && Object.hasOwn(native, 'result');
     const result = wrapped ? native.result : native;
-    if (!args.deferSupplementalText) await applySupplementalText({ adapterBuilds: builds, gameDir: args.gameDir, buildDir: args.buildDir, outputDir: result.outputDir ?? args.outputDir, signal: control.signal });
-    for (const item of builds.filter(item => item.buildReceiptId && path.resolve(item.sourceRoot) === path.resolve(args.gameDir,item.resourceRoot ?? '.'))) await lab.assertBuildOutputFresh({ projectId:args.projectId,workspaceDir:item.workspaceDir,buildDir:item.buildDir,buildReceiptId:item.buildReceiptId,unitIds:item.unitIds,outputDir:args.deferSupplementalText ? undefined : path.resolve(result.outputDir ?? args.outputDir,item.resourceRoot ?? '.'),signal:control.signal });
+    if (!args.deferSupplementalText) await applySupplementalText({ adapterBuilds: builds, gameDir: args.gameDir, buildDir: args.buildDir, outputDir: result.outputDir ?? args.outputDir, signal: control.signal, lab });
+    for (const item of builds.filter(item => !item.sourceView && item.buildReceiptId && path.resolve(item.sourceRoot) === path.resolve(args.gameDir,item.resourceRoot ?? '.'))) await lab.assertBuildOutputFresh({ projectId:args.projectId,workspaceDir:item.workspaceDir,buildDir:item.buildDir,buildReceiptId:item.buildReceiptId,unitIds:item.unitIds,outputDir:args.deferSupplementalText ? undefined : path.resolve(result.outputDir ?? args.outputDir,item.resourceRoot ?? '.'),signal:control.signal });
     return native;
   };
   worker.executionRuntime = nativeWorker.executionRuntime;

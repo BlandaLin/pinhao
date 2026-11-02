@@ -4,7 +4,7 @@ import { createHash } from 'node:crypto';
 import { mkdtemp, mkdir, readFile, writeFile, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { dshModelCapacity, runDshAdaptation, verifiedDshRuntime, DSH_BACKEND_VERSION } from './dsh-runner.mjs';
+import { dshModelCapacity, dshCompactionConfig, runDshAdaptation, verifiedDshRuntime, DSH_BACKEND_VERSION } from './dsh-runner.mjs';
 import { readAdaptationState } from './adaptation.mjs';
 import { runAdaptationPool } from './adaptation-pool.mjs';
 
@@ -36,6 +36,15 @@ test('model capacity is explicit or labelled conservative, never an assumed one-
   assert.equal(configured.maxTokens, 65536); assert.equal(configured.contextWindow, 1048576);
   assert.equal(configured.capacitySource.maxOutputTokens, 'configured');
   assert.throws(() => dshModelCapacity({ contextWindow: 2048, maxOutputTokens: 4096 }), { code: 'TECHNICAL_CONFIGURATION_ERROR' });
+  assert.throws(() => dshModelCapacity({ maxOutputTokens: 1 }), { code: 'TECHNICAL_CONFIGURATION_ERROR' });
+});
+
+test('default compaction reserves output plus SDK headroom without a negative pressure budget', () => {
+  const capacity = dshModelCapacity({});
+  const config = dshCompactionConfig(capacity);
+  assert.equal(config.headroomTokens, 4096);
+  assert.ok(capacity.contextWindow - capacity.maxTokens - config.headroomTokens > 0);
+  assert.throws(() => dshCompactionConfig({ contextWindow: 8192, maxTokens: 4096 }), { code: 'TECHNICAL_CONFIGURATION_ERROR' });
 });
 
 test('same model resumes; changed model creates an explicit execution without losing candidate or accepted state', async t => {

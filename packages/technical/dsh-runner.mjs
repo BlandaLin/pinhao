@@ -134,11 +134,20 @@ export async function verifiedDshRuntime({ sourceRoot } = {}) {
 export function dshModelCapacity(connection, overrides = {}) {
   const contextWindow = overrides.contextWindow ?? connection.contextWindow ?? 32768;
   const maxTokens = overrides.maxTokens ?? connection.maxOutputTokens ?? Math.min(4096, Math.floor(contextWindow / 4));
-  if (!Number.isSafeInteger(contextWindow) || contextWindow < 1 || !Number.isSafeInteger(maxTokens) || maxTokens < 1 || maxTokens >= contextWindow) {
+  if (!Number.isSafeInteger(contextWindow) || contextWindow < 1 || !Number.isSafeInteger(maxTokens) || maxTokens <= 1 || maxTokens >= contextWindow) {
     throw fault('TECHNICAL_CONFIGURATION_ERROR', '请填写有效模型容量：上下文容量必须大于单次输出上限');
   }
   return { contextWindow, maxTokens, capacitySource: { contextWindow: overrides.contextWindow != null || connection.contextWindow != null ? 'configured' : 'conservative-default',
     maxOutputTokens: overrides.maxTokens != null || connection.maxOutputTokens != null ? 'configured' : 'conservative-default' } };
+}
+
+export function dshCompactionConfig({ contextWindow, maxTokens }) {
+  // pi-ai reserves 4096 tokens itself; keep that space out of pressure admission.
+  const headroomTokens = 4096;
+  if (contextWindow - maxTokens - headroomTokens < 1) {
+    throw fault('TECHNICAL_CONFIGURATION_ERROR', '模型容量不足以同时保留输出和运行器安全空间，请核对上下文与输出配置');
+  }
+  return { headroomTokens, maxTokens: Math.min(8192, maxTokens) };
 }
 
 export async function createFixedDshHarness(launch, config = {}) {
@@ -264,9 +273,10 @@ export async function runDshAdaptation(options) {
     const runtime = dsh.harnessFactory ? { mode: 'injected-test', artifactDigest: dsh.runtimeDigest ?? 'injected-test' }
       : await verifiedDshRuntime({ sourceRoot: dsh.sourceRoot });
     const { contextWindow, maxTokens, capacitySource } = dshModelCapacity(connection, dsh);
+    const compactionConfig = dshCompactionConfig({ contextWindow, maxTokens });
     const profileDigest = hash([await readFile(patchFile, 'utf8'), await readFile(pluginFile, 'utf8'), DSH_BACKEND_VERSION,
       runtime.mode, runtime.artifactDigest, connection.baseUrl, reasoningPreference(connection),
-      modelProfile({ model: connection.model, contextWindow, maxTokens })]);
+      modelProfile({ model: connection.model, contextWindow, maxTokens }), compactionConfig]);
     const sourceIdentity = project.sourceFingerprint ?? initialCoverage?.sourceContextHash;
     if (!sourceIdentity) throw fault('DSH_SOURCE_IDENTITY_REQUIRED', 'The host must bind a real source fingerprint before a runtime can start');
     const sourceFingerprint = hash(sourceIdentity);
@@ -329,7 +339,7 @@ export async function runDshAdaptation(options) {
       if (reused) restored = accumulateVerifiedExtractions(restored, [reused]);
     }
     if (restored.length && verifyCoverage) coverage = await verifyCoverage({ units: restored.flatMap(item => item.units), coverageDecisions: state.coverageDecisions });
-    const businessOptions = { ...options, project, inventory, coverage, lab: boundLab, gameDir, readDir, readRoots,
+    const businessOptions = { ...options, connection: { ...connection, contextWindow, maxOutputTokens: maxTokens }, project, inventory, coverage, lab: boundLab, gameDir, readDir, readRoots,
       copySourceFiles, workspaceDir, state, signal, persist, onProgress, onLessons, onAcceptedBatch,
       verifyCoverage, assignment, requestScopeChange, getExistingUnits, research, requestContext,
       initialExtractions: restored, secrets: [connection.apiKey], binding,
@@ -365,7 +375,7 @@ export async function runDshAdaptation(options) {
     }
     server = await createDshRuntimeBridgeServer({ bridge, state, signal, persist, lab: boundLab, project, getLessons, onFatal: stopRuntime,
       gameDir, workspaceDir, initialWaitMs: dsh.initialWaitMs ?? 1000 });
-    relay = await (dsh.relayFactory ?? createDshModelRelay)({ connection, requestContext,
+    relay = await (dsh.relayFactory ?? createDshModelRelay)({ connection, requestContext, capacity: { contextWindow, maxTokens },
       directory: path.join(workspaceDir, 'requests'), contentDirectory: path.join(workspaceDir, 'request-content'),
       signal, diagnostics, requestTimeoutMs, onFailure: stopRuntime,
       onWait: details => onProgress({ status: 'running', phase: details.phase, ...details }),
@@ -374,7 +384,7 @@ export async function runDshAdaptation(options) {
     const env = runtimeEnvironment({ relay, server, sessionId: binding.sessionId, instructions, contextWindow, maxTokens,
       pendingPromptDigest: state.backend.pendingPrompt?.settled === false ? state.backend.pendingPrompt.digest : undefined });
     const pluginPatch = path.join(state.backend.runtimeHome, 'pinhao-plugin.patch.json');
-    await writeFile(pluginPatch, JSON.stringify([{ id: 'compaction-basic', config: { maxTokens: Math.min(8192, maxTokens) } }, { insert: [
+    await writeFile(pluginPatch, JSON.stringify([{ id: 'compaction-basic', config: compactionConfig }, { insert: [
       { id: 'pinhao-llm-relay', name: runtime.modelProviderEntry ?? '@deepseek-ai/dsh-llm-pi-ai',
         config: modelProfile({ model: connection.model, contextWindow, maxTokens, baseUrl: relay.baseUrl }) },
       { id: 'pinhao-business-tools', name: pluginFile },
@@ -450,6 +460,15 @@ export async function runDshAdaptation(options) {
       const turnError = interval.events?.findLast(event => event.type === 'turn/end' && event.data?.reason?.kind === 'error')?.data.reason.error;
       if (turnError) throw fault(turnError.code ?? 'DSH_MODEL_FAILED', turnError.message ?? 'Runtime model turn failed');
       if (bridge.session.done()) break;
+      const truncated = interval.events?.some(event => event.type === 'turn/end' && event.data?.reason?.kind === 'max-tokens');
+      if (truncated) {
+        const material = state.control?.materialSerial ?? 0;
+        if (state.backend.truncationRecovery?.materialSerial === material) {
+          return await finish({ status: 'needs-review', stopReason: 'DSH_OUTPUT_TRUNCATED',
+            reason: '输出截断恢复后仍无新证据或成果；现有候选、工具回执与会话已保存，请核对模型输出容量后继续' });
+        }
+        state.backend.truncationRecovery = { materialSerial: material, at: stamp() };
+      } else delete state.backend.truncationRecovery;
       if (state.validation?.error?.code === 'DISPLAY_REVIEW_UNAVAILABLE') {
         return await finish({ status: 'needs-review', stopReason: 'DISPLAY_REVIEW_UNAVAILABLE',
           reason: '显示用途复核接口暂不可用，候选已保留；接口恢复后继续验证，无需重写适配器',
@@ -485,7 +504,7 @@ export async function runDshAdaptation(options) {
       await onProgress({ status: 'running', phase: 'session-idle', sessionId: binding.sessionId });
       prompt = notices.length
         ? 'The original background processes have finished. Continue with their saved evidence below, not another process run.'
-        : `The business task is not yet complete. Continue in this session using saved evidence and the registered tools. A final explanation alone does not accept an adapter. If a necessary fact is missing, save its concrete blocker.\n${JSON.stringify({ candidateId: state.candidateId, validationId: state.validationId })}`;
+        : `${truncated ? 'The previous output was truncated, not a completed operation. Context recovery runs before the next step. Use smaller complete tool arguments or script patches; reconcile existing receipts rather than replaying side effects.' : 'The business task is not yet complete. Inspect the host strategy and ready work items; deliver an already-valid candidate before repeating investigation.'}\n${JSON.stringify({ candidateId: state.candidateId, validationId: state.validationId, strategy: state.strategyDirective, workItems: bridge.session.control.workingSet() })}`;
     }
     coverage = bridge.session.coverage();
     result = bridge.session.result() ?? { status: 'needs-review', stopReason: state.coordinationPending ? 'scope-change' : 'runtime-yield', coverage };

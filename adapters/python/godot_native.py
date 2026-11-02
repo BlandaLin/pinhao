@@ -19,6 +19,7 @@ import text_formats as formats
 from rgss_archive import destination, safe_relative
 import asset_overlay
 import adapter_overlay
+import godot_source_trace
 from native_attempt import NativeAttempt
 
 READY = 'native_godot_pack_roundtrip'
@@ -490,7 +491,7 @@ def prose_value(value):
                                      or bool(re.search(r'\b[A-Za-z]+\s+[A-Za-z]+\b', value)))
 
 
-def script_entries(text, collector, file, messages, wrappers=None):
+def script_entries(text, collector, file, messages, wrappers=None, provenance=None):
     literals, masked = script_literals(text)
     selected, catalog_spans = {}, set()
 
@@ -569,6 +570,12 @@ def script_entries(text, collector, file, messages, wrappers=None):
         begin = end + re.match(r'\s*:\s*', masked[end:]).end()
         select(begin, expression_end(masked, begin), 'display_field:' + field,
                nested=masked[begin:begin + 1] in '[{')
+    if provenance:
+        selected = {target: value for target, value in selected.items()
+                    if not provenance.blocked(file, *target)}
+        for start, end, source, uses in provenance.accepted(file):
+            if display_value(source) and (start, end) not in catalog_spans:
+                selected.setdefault((start, end), (source, {'kind': 'display_source_trace', 'consumers': uses}))
     for (start, end), (source, evidence) in sorted(selected.items()):
         collector.add(file, formats.span(start, end, 'quoted'), source, 'script_display',
                       {'line': text.count('\n', 0, start) + 1, 'evidence': evidence}, 'renpy')
@@ -580,7 +587,8 @@ def script_entries(text, collector, file, messages, wrappers=None):
             candidates.append({'file': file, 'line': text.count('\n', 0, start) + 1,
                                'kind': 'godot_script_literal_candidate', 'source': value,
                                'target': formats.span(start, end, 'quoted'),
-                               'classification': script_candidate_kind(masked, start, end)})
+                               'classification': script_candidate_kind(masked, start, end),
+                               **(provenance.evidence(file, start, end) if provenance else {})})
         if isinstance(value, str) and value.startswith('res://') and value.endswith(('.json', '.csv', '.res', '.scn', '.gdc')):
             relative = safe_relative(value[6:])
             if not (collector.root / relative).is_file():
@@ -600,7 +608,7 @@ def script_candidate_kind(masked, start, end):
     return 'display_unresolved'
 
 
-def json_display_entries(text, collector, file):
+def json_display_entries(text, collector, file, provenance=None):
     """Bind JSON string leaves to exact spans; keys and structural fields stay unchanged."""
     decoder, leaves = json.JSONDecoder(), []
     whitespace = re.compile(r'\s*')
@@ -648,21 +656,23 @@ def json_display_entries(text, collector, file):
     if text[end:].strip():
         raise ValueError('Unexpected data after Godot JSON resource')
     candidates = []
+    proven = {(start, end): uses for start, end, _, uses in provenance.accepted(file)} if provenance else {}
     for path, start, end, source in leaves:
         field = next((part for part in reversed(path) if isinstance(part, str)), '')
         parent = core.at(value, path[:-1]) if path else None
         visible = field in DISPLAY_FIELDS or (field == 'name' and isinstance(parent, dict)
                                               and bool(set(parent) & DISPLAY_FIELDS))
-        if visible and display_value(source):
+        if (visible or (start, end) in proven) and display_value(source) and not (provenance and provenance.blocked(file, start, end)):
             collector.add(file, formats.span(start, end, 'quoted'), source, 'data_display',
-                          {'path': path, 'field': field}, 'renpy')
+                          {'path': path, 'field': field, **({'consumers': proven[(start, end)]} if (start, end) in proven else {})}, 'renpy')
         elif prose_value(source):
             classification = ('resource_identity' if field in {'path', 'file', 'texture', 'image', 'cg', 'asset', 'script'}
                               else 'logic_identity' if field in {'id', 'trigger', 'type', 'mode', 'condition', 'tags', 'flags'}
                               else 'display_unresolved')
             candidates.append({'file': file, 'kind': 'godot_json_literal_candidate',
                                'source': source, 'path': path, 'target': formats.span(start, end, 'quoted'),
-                               'classification': classification})
+                               'classification': classification,
+                               **(provenance.evidence(file, start, end, field) if provenance else {})})
     return candidates
 
 
@@ -826,12 +836,13 @@ def _extract(game, work, info, helpers, args, attempt):
         file, text = collector.document(path)
         documents.append((path, file, text))
     wrappers = display_wrappers([text for path, _, text in documents if path.suffix.lower() == '.gd'])
+    provenance = godot_source_trace.analyze(documents, script_literals, value_at, DISPLAY, DISPLAY_CALLS)
     for path, file, text in documents:
         if path.suffix.lower() == '.gd':
-            candidates.extend(script_entries(text, collector, file, messages, wrappers))
+            candidates.extend(script_entries(text, collector, file, messages, wrappers, provenance))
         elif path.suffix.lower() == '.json':
             try:
-                candidates.extend(json_display_entries(text, collector, file))
+                candidates.extend(json_display_entries(text, collector, file, provenance))
             except (ValueError, RecursionError) as error:
                 collector.review.append({'file': file, 'kind': 'godot_json_resource', 'message': str(error)[:300]})
         else:

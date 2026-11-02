@@ -1,10 +1,13 @@
 import { createHash } from 'node:crypto';
+import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { accumulateVerifiedExtractions } from './adaptation/verified-batches.mjs';
 import { summarizeReviewDiagnostics } from './review-diagnostics.mjs';
-import { adaptationLocationKey } from '../core/adaptation-results.mjs';
+import { adaptationUnitLocationKey } from '../core/adaptation-results.mjs';
 import { distillLessons, mergeLessons, lessonsForSource } from './lessons.mjs';
 import { resourceRouteSummary } from './resource-routing.mjs';
+import { createEvidenceStore } from './adaptation/evidence.mjs';
+import { readAcceptedBatch } from '../core/accepted-batches.mjs';
 
 const normalize = value => typeof value === 'string' ? value.replace(/^res:\/\//, '').replaceAll('\\', '/').replace(/^\.\//, '') : '';
 const fileOf = item => normalize(item.file ?? item.carrier ?? item.locator?.file ?? item.context?.file);
@@ -89,8 +92,7 @@ export function mergeAdaptationUnits(extractions) {
   const units = [], ids = new Set(), locations = new Set();
   for (const extraction of extractions) for (const unit of extraction.units ?? []) {
     const id = unit.legacyId ?? unit.id;
-    const locator = unit.locator ?? unit.context?.adaptationLocator;
-    const location = adaptationLocationKey(locator, fileOf(unit));
+    const location = adaptationUnitLocationKey(unit);
     if (!location) throw new Error('技术子任务需要稳定回写定位');
     if (ids.has(id) || locations.has(location)) throw new Error('技术子任务返回了重复文字或回写定位');
     ids.add(id); locations.add(location); units.push(unit);
@@ -107,6 +109,28 @@ export async function runAdaptationPool({ run, jobs, concurrency = 1, acquireSlo
   // re-guessed the same rejected tool argument: 42 jobs, 41 identical failures, one lesson.
   const evidenceFingerprint = args.project?.sourceFingerprint ?? args.coverage?.sourceContextHash;
   let sharedLessons = lessonsForSource(args.lessons, evidenceFingerprint), lessonWrites = Promise.resolve();
+  const sharedEvidence = new Map();
+  const jobDirectory = job => job.files ? path.join(args.workspaceDir, 'jobs', job.id) : args.workspaceDir;
+  const publishEvidence = async (job, record) => {
+    if (!evidenceFingerprint) return;
+    const workspaceDir = jobDirectory(job);
+    // Only advertise existing host namespaces. Do not create evidence for a model's claim.
+    try { await readFile(path.join(workspaceDir, 'evidence-receipts', 'namespace.json'), 'utf8'); }
+    catch (error) { if (error.code === 'ENOENT') return; throw error; }
+    const page = await createEvidenceStore(workspaceDir).readReceipts({ limit: 1 });
+    const previous = sharedEvidence.get(job.id);
+    const entry = previous ?? { jobId: job.id, files: job.files, namespaceId: page.namespaceId,
+      workspaceDir, evidenceFingerprint, referenceOnly: true, accepted: [] };
+    if (record) {
+      if (record.payload?.projectId !== args.project?.id || record.payload?.adaptationRequestId !== (args.requestContext?.adaptationRequestId ?? 'local')
+          || record.payload?.originOwnerId !== (job.ownerId ?? job.id)) throw new Error('共享成果回执不属于当前来源作业');
+      const extraction = await readAcceptedBatch({ directory: path.dirname(record.receiptFile), record });
+      if (!entry.accepted.some(item => item.acceptedBatchId === record.id)) entry.accepted.push({ acceptedBatchId: record.id,
+        recipeId: record.payload.recipeId, candidateId: record.payload.candidateId, validationId: record.payload.validationId,
+        unitCount: extraction.units?.length ?? 0, files: job.files });
+    }
+    sharedEvidence.set(job.id, entry);
+  };
   const publishedJobs = new Set();
   const shareLessons = (incoming, jobId) => {
     if (!incoming?.length) return lessonWrites;
@@ -168,12 +192,13 @@ export async function runAdaptationPool({ run, jobs, concurrency = 1, acquireSlo
       let result;
       try {
         result = await run({ ...args, getLessons: () => sharedLessons,
-          ...(onAcceptedBatch ? { onAcceptedBatch: record => onAcceptedBatch(job, record) } : {}),
+          getSharedEvidence: () => structuredClone([...sharedEvidence.values()].filter(item => item.jobId !== job.id)),
+          onAcceptedBatch: async record => { await publishEvidence(job, record); return onAcceptedBatch?.(job, record); },
           inheritStates: args.inheritStatesByJob?.[job.id] ?? [],
           ...(args.requestContext ? { requestContext: { ...args.requestContext, jobId: job.id } } : {}),
           onLessons: lessons => shareLessons(lessons, job.id), assignment: job.files ? job : undefined,
           coverage: jobCoverage,
-          workspaceDir: job.files ? path.join(args.workspaceDir, 'jobs', job.id) : args.workspaceDir,
+          workspaceDir: jobDirectory(job),
           statePath: job.files ? path.join(args.statePath ? path.dirname(args.statePath) : args.workspaceDir, 'jobs', job.id, 'progress.jsonl') : args.statePath,
           onProgress: progress => report(job, progress),
           verifyCoverage: verifyCoverage ? async extraction => {
@@ -194,6 +219,7 @@ export async function runAdaptationPool({ run, jobs, concurrency = 1, acquireSlo
         failHost(result.error instanceof Error ? result.error : Object.assign(new Error(result.error.message), result.error));
       }
       const saved = await onResult(job, result);
+      await publishEvidence(job);
       Object.assign(result, saved);
       results.set(job.id, result);
       if (!publishedJobs.has(job.id)) {

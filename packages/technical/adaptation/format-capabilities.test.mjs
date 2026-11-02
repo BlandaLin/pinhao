@@ -20,7 +20,8 @@ const profile = qualified => ({ capabilityId:'fixture-group', profileFamily:'mec
   } });
 test('default lab exposes actual builtins and unsupported data is typed, not silently trusted', async t => {
   const root = await rootFor(t), lab = await createAdapterLab({dataDir:path.join(root,'lab')}), described = lab.describeVerificationCapabilities();
-  assert.equal(described.capabilities.length,4);
+  assert.equal(described.capabilities.length,5);
+  assert.ok(described.capabilities.some(item => item.capabilityId === 'builtin-table-cells'));
   const catalog = await createFormatCapabilities();
   const json = await catalog.plan({units:[{...unit,locator:{file:'data.dat',pointer:'/text'}}],manifest:{scope:{files:['data.dat']}}});
   assert.equal(json.capabilityRefs[0].capabilityId,'builtin-json-pointer');

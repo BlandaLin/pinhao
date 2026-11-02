@@ -138,7 +138,8 @@ test('T01: SDK completes SSE tool calls before upstream EOF without being mistak
   assert.notEqual(result.status, 'verified');
 });
 
-test('L2: actual SDK consumes passed validation and submits its next call into an accepted SQLite publication', { ...runtimeCheck, timeout: 120000 }, async t => {
+for (const truncateFirst of [false, true]) {
+test(`L2: actual SDK ${truncateFirst ? 'recovers truncated output then' : ''} consumes passed validation and submits its next call into an accepted SQLite publication`, { ...runtimeCheck, timeout: 120000 }, async t => {
   const manifest = { schemaVersion: 1, id: 'neutral-caption', version: '1.0.0', engine: 'Godot',
     license: 'GPL-3.0-or-later', scope: { files: ['story.json'] } };
   const code = `({detect(){return true},extract(host){return {units:[{id:'caption',source:JSON.parse(host.readText('story.json')).text,locator:{file:'story.json',pointer:'/text'}}]}},validate(){return true},roundtrip(host){host.writeBytes('story.json',host.readBytes('story.json'));return {}},build(host,input){const value=JSON.parse(host.readText('story.json'));value.text=input.translations.caption??value.text;host.writeText('story.json',JSON.stringify(value));return {}},assemble(){return {}}})`;
@@ -148,7 +149,14 @@ test('L2: actual SDK consumes passed validation and submits its next call into a
     assert.ok(message, `the next actual model request must contain tool result ${id}`);
     return JSON.parse(message.content);
   };
-  const local = await provider(t, async (body, index) => {
+  let businessCalls = 0;
+  const local = await provider(t, async body => {
+    if (JSON.stringify(body.messages).includes('You are now acting as a compaction engine')) {
+      return { content: '## Critical Context\nInvestigate the neutral story and write an adapter. No adapter has been accepted; preserve host evidence references.' };
+    }
+    businessCalls++;
+    if (truncateFirst && businessCalls === 1) return { _finishReason: 'length', content: 'Incomplete tool plan' };
+    const index = businessCalls - (truncateFirst ? 1 : 0);
     if (index === 1) return tool('write_adapter', { manifest, code }, 'write-neutral-caption');
     if (index === 2) {
       written = resultFor(body, 'write-neutral-caption');
@@ -167,7 +175,7 @@ test('L2: actual SDK consumes passed validation and submits its next call into a
     }
     return { content: 'No additional changes are proposed.' };
   });
-  const f = await fixture(t, local.baseUrl, { maxHttp: 4, name: 'sdk-acceptance-closure' });
+  const f = await fixture(t, local.baseUrl, { maxHttp: truncateFirst ? 8 : 4, name: 'sdk-acceptance-closure' });
   const before = await readFile(path.join(f.gameDir, 'story.json'));
   const store = createStore(path.join(f.root, 'database'));
   const ledger = createAcceptanceLedger({ store: { ...store, transaction: (_id, action) => store.transaction(action) },
@@ -188,7 +196,7 @@ test('L2: actual SDK consumes passed validation and submits its next call into a
       accepted = { record, extraction };
     } });
     assert.ok(validated && accepted, JSON.stringify({ status: result.status, error: result.error }));
-    assert.ok(local.requests.length >= 3 && local.requests.length <= 4, 'allow a legitimate final SDK request, but not a repeated purchase of this three-call closure');
+    assert.ok(local.requests.length >= 3 && local.requests.length <= (truncateFirst ? 7 : 4), 'allow recovery and a legitimate final SDK request, not repeated acceptance');
     assert.equal(f.owner.snapshot().httpSentKnown, local.requests.length);
     assert.equal(publications, 1);
     assert.equal(store.units(f.project.id).length, 1);
@@ -201,6 +209,7 @@ test('L2: actual SDK consumes passed validation and submits its next call into a
     assert.deepEqual(await readFile(path.join(f.gameDir, 'story.json')), before);
   } finally { store.close(); }
 });
+}
 
 test('T16: actual pinned SDK can execute Python in a long Chinese project job directory', { ...runtimeCheck, timeout: 120000 }, async t => {
   const code = "from pathlib import Path\np=Path('long-path-output.txt')\np.write_text('long-workspace-python-ok', encoding='utf-8')\nprint('long-workspace-python-ok',flush=True)";
@@ -385,7 +394,7 @@ test('T11/T14: changed source and missing durable session fail explicitly withou
 
 for (const failSummary of [false, true]) {
   test(`T05/T06/T12: real profile compaction ${failSummary ? 'rejects truncated summaries' : 'preserves resumable evidence and charges its own request'}`, { ...runtimeCheck, timeout: 180000 }, async t => {
-    let reads = 0, summaries = 0, evidenceId, compactedRequest;
+    let reads = 0, summaries = 0, evidenceId, compactedRequest, overflow = false;
     const local = await provider(t, async body => {
       const messages = JSON.stringify(body.messages);
       const reference = messages.match(/evidence-[a-f0-9]{64}/)?.[0];
@@ -402,6 +411,12 @@ for (const failSummary of [false, true]) {
         return { content: 'No acceptance has occurred.' };
       }
       if (reads < 3) return tool('read_resource', { root: 'source', file: 'large.txt', offset: 80000 * reads++, length: 80000 }, `large-read-${reads}`);
+      // Capacity projection now keeps these previews below pressure. Exercise the
+      // same summary convergence gate through an actual provider overflow.
+      if (!overflow) {
+        overflow = true;
+        return { _httpError: { status: 400, body: { error: { code: 'context_length_exceeded', message: 'Maximum context length exceeded' } } } };
+      }
       return { content: 'Continue from the source evidence.' };
     });
     const f = await fixture(t, local.baseUrl, { maxHttp: 8, name: failSummary ? 'summary-failure' : 'summary-success' });
@@ -423,25 +438,107 @@ for (const failSummary of [false, true]) {
   });
 }
 
+test('default 32K SDK profile compacts large host reads and advances durable logical progress', { ...runtimeCheck, timeout: 180000 }, async t => {
+  let reads = 0, summaries = 0, candidateId, validationId;
+  const manifest = { schemaVersion: 1, id: 'default-capacity-caption', version: '1.0.0', engine: 'Godot',
+    license: 'GPL-3.0-or-later', scope: { files: ['story.json'] } };
+  const code = `({detect(){return true},extract(host){return {units:[{id:'caption',source:JSON.parse(host.readText('story.json')).text,locator:{file:'story.json',pointer:'/text'}}]}},validate(){return true},roundtrip(host){host.writeBytes('story.json',host.readBytes('story.json'));return {}},build(host,input){const value=JSON.parse(host.readText('story.json'));value.text=input.translations.caption??value.text;host.writeText('story.json',JSON.stringify(value));return {}},assemble(){return {}}})`;
+  const local = await provider(t, async body => {
+    assert.ok(body.max_tokens >= 1024, 'no clamped single-token request reaches the upstream');
+    if (JSON.stringify(body.messages).includes('You are now acting as a compaction engine')) {
+      summaries++;
+      return { content: '## Critical Context\nLarge source evidence was read. No candidate has been accepted. Use saved evidence references and do not repeat the same reads.' };
+    }
+    if (reads < 3) return tool('read_resource', { root: 'source', file: 'capacity.txt', offset: reads++ * 50000, length: 50000 }, `capacity-${reads}`);
+    const readResult = id => {
+      const message = body.messages.findLast(row => row.role === 'tool' && row.tool_call_id === id);
+      return message ? JSON.parse(message.content) : null;
+    };
+    candidateId ??= readResult('capacity-write')?.candidateId;
+    validationId ??= readResult('capacity-validate')?.validationId;
+    if (!candidateId) return tool('write_adapter', { manifest, code }, 'capacity-write');
+    if (!validationId) return tool('validate_adapter', { candidateId }, 'capacity-validate');
+    return tool('submit_recipe', { candidateId, validationId, metadata: {} }, 'capacity-submit');
+  });
+  const f = await fixture(t, local.baseUrl, { maxHttp: 12, name: 'default-capacity' });
+  await writeFile(path.join(f.gameDir, 'capacity.txt'), 'SOURCE_FACT\n' + 'large neutral evidence row\n'.repeat(10000));
+  const { contextWindow, maxOutputTokens, ...connection } = f.options.connection;
+  const result = await runDshAdaptation({ ...f.options, connection });
+  const state = await readAdaptationState(f.options.statePath);
+  assert.equal(state.backend.capacity.contextWindow, 32768);
+  assert.ok(state.control.logicalSteps > 0);
+  assert.ok(summaries > 0, JSON.stringify({ result, reads, requests: local.requests.length }));
+  assert.equal(reads, 3, 'compaction must recover enough context to execute the third host read');
+  assert.ok(local.requests.some(body => body.messages.some(message => message.role === 'tool' && message.tool_call_id === 'capacity-3')),
+    'a subsequent real HTTP request must consume the third tool receipt');
+  assert.notEqual(result.stopReason, 'CONTEXT_WINDOW_EXCEEDED', 'a summary attempt alone is not recovery');
+  assert.equal(f.owner.snapshot().httpSentKnown, local.requests.length);
+  assert.equal(result.status, 'verified', JSON.stringify(result.error));
+  assert.equal(result.units.length, 1);
+  assert.equal(state.acceptedBatches.length, 1);
+  const events = (await readFile(path.join(state.backend.runtimeHome, 'events.jsonl'), 'utf8')).trim().split('\n').map(line => JSON.parse(line));
+  assert.ok(events.some(row => row.event?.type === 'compaction/end'), 'summary recovery must be durably committed, not merely requested');
+});
+
+test('actual SDK output truncation is consumed once then stops unchanged retries with receipts retained', { ...runtimeCheck, timeout: 180000 }, async t => {
+  let summaries = 0;
+  const local = await provider(t, async body => {
+    if (JSON.stringify(body.messages).includes('You are now acting as a compaction engine')) {
+      summaries++;
+      return { content: '## Critical Context\nNo new evidence or accepted adapter. Preserve prior receipts.' };
+    }
+    return { _finishReason: 'length', content: 'Incomplete output' };
+  });
+  const f = await fixture(t, local.baseUrl, { maxHttp: 8, name: 'output-truncation' });
+  const result = await runDshAdaptation(f.options);
+  const state = await readAdaptationState(f.options.statePath);
+  assert.equal(result.stopReason, 'DSH_OUTPUT_TRUNCATED');
+  assert.ok(state.control.logicalSteps >= 2);
+  assert.equal(local.requests.filter(body => !JSON.stringify(body.messages).includes('You are now acting as a compaction engine')).length, 2);
+  assert.ok(state.backend.truncationRecovery);
+});
+
+test('actual SDK presents durable progress review rather than stopping on an arbitrary step budget', { ...runtimeCheck, timeout: 180000 }, async t => {
+  const local = await provider(t, async () => ({ content: 'No new evidence.' }));
+  const f = await fixture(t, local.baseUrl, { maxHttp: 6, name: 'progress-review' });
+  const result = await runDshAdaptation({ ...f.options, controlLimits: {
+    materialReviewSteps: 2, acceptedReviewSteps: 4, recoverySteps: 2, sameFailureThreshold: 3,
+  } });
+  const state = await readAdaptationState(f.options.statePath);
+  assert.ok(state.control.logicalSteps >= 6);
+  assert.ok(state.control.watch.lastReviewStep >= 2);
+  assert.ok(local.requests.some(body => JSON.stringify(body.messages).includes('Host review: NO_MATERIAL_REVIEW')));
+  assert.equal(local.requests.length, 6, 'existing explicit test cost gate, not logical-step count, stops the run');
+  assert.equal(result.stopReason, 'ADAPTATION_BUDGET_EXHAUSTED');
+});
+
 test('F04: actual SDK survives a 400 context overflow, persists compaction and retries the same session', { ...runtimeCheck, timeout: 180000 }, async t => {
-  let reads = 0, overflow = false, summaries = 0, compacted;
+  let reads = 0, overflow = false, summaries = 0, compacted, resumedTool = false;
   const local = await provider(t, async body => {
     const messages = JSON.stringify(body.messages);
     if (messages.includes('You are now acting as a compaction engine')) {
       summaries++;
       return { content: '## Primary Request and Intent\nInvestigate the same source.\n## Critical Context\nOVERFLOW_RECOVERY_CHECKPOINT: source evidence is saved; no adapter has been accepted. Preserve all receipts.' };
     }
-    if (messages.includes('<compacted-summary>')) { compacted = body; return { content: 'No adapter has been accepted.' }; }
-    if (reads < 3) return tool('read_resource', { root: 'source', file: 'overflow.txt', offset: reads++ * 20000, length: 20000 }, `overflow-read-${reads}`);
+    if (messages.includes('<compacted-summary>')) {
+      compacted = body;
+      if (!resumedTool) { resumedTool = true; return tool('read_resource', { root: 'source', file: 'overflow.txt', offset: 9000, length: 3000 }, 'overflow-recovered-read'); }
+      return { content: 'No adapter has been accepted.' };
+    }
+    if (reads < 3) return tool('read_resource', { root: 'source', file: 'overflow.txt', offset: reads++ * 3000, length: 3000 }, `overflow-read-${reads}`);
     if (!overflow) { overflow = true; return { _httpError: { status: 400, body: { error: { code: 'context_length_exceeded', message: 'Maximum context length exceeded' } } } }; }
     return { content: 'No candidate has been accepted.' };
   });
   const f = await fixture(t, local.baseUrl, { maxHttp: 8, name: 'context-overflow-recovery' });
   await writeFile(path.join(f.gameDir, 'overflow.txt'), 'OLD_HISTORY_SENTINEL\n' + 'distinct saved source material\n'.repeat(3000));
-  const result = await runDshAdaptation(f.options);
+  const result = await runDshAdaptation({ ...f.options,
+    connection: { ...f.options.connection, contextWindow: 32768, maxOutputTokens: 4096 } });
   assert.equal(overflow, true);
   assert.ok(summaries > 0, JSON.stringify({ stopReason: result.stopReason, requests: local.requests.length }));
   assert.ok(compacted, 'the SDK must use a durable compacted history in a following real HTTP request');
+  assert.ok(local.requests.some(body => body.messages.some(message => message.role === 'tool' && message.tool_call_id === 'overflow-recovered-read')),
+    'the recovered default-capacity SDK must execute a normal tool and consume its receipt');
+  assert.notEqual(result.stopReason, 'CONTEXT_WINDOW_EXCEEDED');
   assert.match(JSON.stringify(compacted.messages), /OVERFLOW_RECOVERY_CHECKPOINT/);
   assert.equal(JSON.stringify(compacted.messages).includes('OLD_HISTORY_SENTINEL'), false);
   assert.notEqual(result.stopReason, 'TECHNICAL_CONFIGURATION_ERROR');

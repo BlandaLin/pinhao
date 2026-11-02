@@ -11,6 +11,7 @@ import text_formats as formats
 from rgss_archive import destination
 import unity_native
 import unity_semantics
+import unity_textasset_review
 
 SCHEMA = 'pinhao-native-field-review-v1'
 
@@ -37,7 +38,7 @@ def page_integer(args, key, default, minimum, maximum):
 
 def review_groups(source, metadata, helpers, file=None):
     serialized = [] if file in metadata.get('assemblyFilesSha256', {}) else unity_native.review_groups(source, metadata, helpers, file)
-    return serialized + unity_semantics.code_groups(source, metadata, helpers, file)
+    return serialized + unity_semantics.code_groups(source, metadata, helpers, file) + unity_textasset_review.groups(source, metadata, helpers, file)
 
 
 def accepted_display_groups(source, metadata, helpers, known=()):
@@ -59,9 +60,11 @@ def coverage_issues(metadata, groups):
     covered = {(group['file'], key) for group, _ in reviewed for key in group['_objects']}
     issues = [item for item in metadata.get('issues', [])
               if (item.get('file'), item.get('object')) not in covered
-              or item.get('kind') not in unity_native.REVIEW_KINDS | {'unity_display_consumer_pending', unity_semantics.CODE_REVIEW_KIND}]
+              or item.get('kind') not in unity_native.REVIEW_KINDS | unity_textasset_review.KINDS | {'unity_display_consumer_pending', unity_semantics.CODE_REVIEW_KIND}]
     for group, decision in reviewed:
         if decision['disposition'] != 'display':
+            continue
+        if group.get('candidateType') == 'textasset-language':
             continue
         if group.get('fieldUses', {}).get('available') is not True:
             group['status'] = 'pending'
@@ -201,6 +204,12 @@ def decision_for(group, value, helpers):
                                   'Readable fields have actual display consumers. Select their safe displaySites or leave unresolved consumers pending; this group is not non-display')
     if group.get('status') == 'blocked':
         raise helpers.WorkerError('NATIVE_REVIEW_SCHEMA_REQUIRED', group['detail'])
+    if group.get('candidateType') == 'textasset-language':
+        if disposition != 'display':
+            raise ValueError('A language selection group requires an explicit source language, not non-display')
+        unity_textasset_review.validate_selection(group, fields)
+        return {'groupId': group['groupId'], 'file': group['file'], 'evidenceHash': group['evidenceHash'],
+                'disposition': disposition, 'fields': fields, 'reason': reason}
     for field in fields:
         unity_semantics.bind_field(group, field, helpers)
     return {'groupId': group['groupId'], 'file': group['file'], 'evidenceHash': group['evidenceHash'],
@@ -214,13 +223,16 @@ def extend_rows(work, manifest, metadata, plans, helpers):
         counts[unit['file']] = max(counts.get(unit['file'], 0), int(ident.rsplit(':', 1)[1]))
     collector.counts.update(counts)
     for file, record in metadata['recordMap'].items():
-        if record.get('binding', {}).get('format') not in ('fields', 'unity-display-site'):
+        if record.get('binding', {}).get('format') not in ('fields', 'unity-display-site') and record.get('type') != 'TextAsset':
             continue
         for index, entry in enumerate(core.read(destination(work / 'baseline', file))['entries']):
             existing_paths[(record['carrier'], record['object'], tuple(entry['path']))] = (file, index)
     updated_files = {}
     for group, decision in plans:
         if decision['disposition'] != 'display':
+            continue
+        if group.get('candidateType') == 'textasset-language':
+            unity_textasset_review.extend(work, manifest, metadata, group, decision, collector, updated_files, existing_paths)
             continue
         additions = unity_native.review_entries(group, [unity_semantics.bind_field(group, field, helpers) for field in decision['fields']])
         for item in additions:
@@ -321,6 +333,8 @@ def adapt(args, helpers):
         if same_evidence and previous['disposition'] != decision['disposition']:
             raise ValueError('A native review disposition conflicts with an accepted decision')
         if same_evidence and decision['disposition'] == 'display':
+            if group.get('candidateType') == 'textasset-language' and previous['fields'] != decision['fields']:
+                raise ValueError('A TextAsset source language conflicts with its accepted selection')
             fields = {tuple(field['path']): field for field in previous['fields']}
             for field in decision['fields']:
                 old = fields.get(tuple(field['path']))

@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { adaptationTools } from './adaptation.mjs';
@@ -29,7 +29,7 @@ test('author context exposes complete read materials separately from its selecte
   assert.equal(context.executionContext.sourceFiles, 'on-demand-copy');
   assert.equal(context.inputView.root, 'source');
   assert.equal(context.inputView.sources.length, 2, 'canonical duplicate roots do not shift sourceIndex');
-  assert.equal(context.inputView.sources[0].directory, f.args.readDir);
+  assert.equal(context.inputView.sources[0].directory, await realpath(f.args.readDir));
   assert.deepEqual(context.inputView.entries.map(row => [row.path, row.kind]), [['scripts', 'directory'], ['story.json', 'file']]);
   const page = await tools.list_files.execute({});
   assert.equal(page.files.find(row => row.path === 'scripts').kind, 'directory');

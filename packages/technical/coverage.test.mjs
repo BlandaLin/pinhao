@@ -201,9 +201,10 @@ test('one coverage scan shares source reads and the next scan sees same-size edi
   const candidate = quoted(file, text, '"Hello hero"', 'Hello hero');
   const unit = { id: 'caption', source: 'Hello hero', locator: { file, byteStart: 10, byteEnd: 20 } };
   const original = fs.promises.readFile;
+  const canonicalFile = await fs.promises.realpath(path.join(root, file));
   let reads = 0;
   fs.promises.readFile = async (target, ...args) => {
-    if (path.resolve(String(target)) === path.join(root, file)) reads++;
+    if (path.resolve(String(target)) === canonicalFile) reads++;
     return original(target, ...args);
   };
   syncBuiltinESMExports();

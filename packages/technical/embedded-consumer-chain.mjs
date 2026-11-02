@@ -193,7 +193,7 @@ function delegated(text,handler,command,values){
 
 export function inspectEmbeddedConsumerProgram(text){
   const ast=parse(text,{ecmaVersion:'latest'}),{handlers,scopes}=collect(ast);
-  let unsafeBuiltins=false;visit(ast,node=>{if(node.type==='AssignmentExpression'&&['Array.prototype.pop','Array.prototype.push','Array.prototype.slice','Array.prototype.join','String.prototype.toUpperCase'].includes(key(node.left)))unsafeBuiltins=true;});
+  let unsafeBuiltins=false;visit(ast,node=>{if(node.type==='AssignmentExpression'&&['Array.prototype.shift','Array.prototype.pop','Array.prototype.push','Array.prototype.slice','Array.prototype.join','String.prototype.split','String.prototype.toUpperCase'].includes(key(node.left)))unsafeBuiltins=true;});
   return{
     ast,unsafeBuiltins,overrides:handlers.length>0,handlerStarts:new Set(handlers.map(handler=>handler.fn.start)),methodWrites:new Set([...scopes.values()].flatMap(scope=>[...scope.methodWrites.keys()])),
     forwardsFirst:handlers.length===1&&forwards(handlers[0].fn.body.body[0],handlers[0]),

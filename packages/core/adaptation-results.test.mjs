@@ -2,6 +2,29 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { sha256 } from '../exchange/index.mjs';
 import { adaptationLocationKey, selectSupplementalUnits } from './adaptation-results.mjs';
+import { accumulateVerifiedExtractions } from '../technical/adaptation/verified-batches.mjs';
+
+test('qualified bindings survive aggregation and XP3 member identities remain distinct', () => {
+  const units = ['a.ks', 'b.ks'].map((member, index) => ({ id: `line-${index}`, source: 'Hello',
+    locator: { file: 'data.xp3', member, format: 'kag-text', encoding: 'utf-16le', byteStart: 2, byteEnd: 12 },
+    context: { formatBinding: { protocol: 'pinhao-format-binding-1', family: 'xp3-kag',
+      location: JSON.stringify([member, 'utf-16le', 2, 12]), capabilityRef: 'a'.repeat(64) } } }));
+  const merged = accumulateVerifiedExtractions([], [{ units }]);
+  assert.equal(merged[0].units.length, 2);
+  assert.equal(selectSupplementalUnits({ projectId: 'neutral', incoming: merged[0].units, existing: [] }).units.length, 2);
+  const custom = { ...units[0], locator: { file: 'body.neutral', formatPath: ['caption'] } };
+  assert.equal(accumulateVerifiedExtractions([], [{ units: [custom] }])[0].units.length, 1);
+  assert.equal(adaptationLocationKey(units[0].locator), undefined, 'an unqualified container span is not a UTF8 file span');
+  assert.throws(() => accumulateVerifiedExtractions([], [{ units: [units[0], { ...units[0], id: 'duplicate' }] }]), /重复/);
+});
+
+test('member-view JSON ownership is namespaced by its physical carrier', () => {
+  const a = { id: 'a', source: 'Hello', locator: { file: 'story.json', pointer: '/text' }, context: { carrier: 'a.zip' } };
+  const b = { ...a, id: 'b', context: { carrier: 'b.zip' } };
+  const first = selectSupplementalUnits({ projectId: 'neutral', incoming: [a], existing: [] });
+  assert.equal(selectSupplementalUnits({ projectId: 'neutral', incoming: [b], existing: first.units }).units.length, 1);
+  assert.throws(() => selectSupplementalUnits({ projectId: 'neutral', incoming: [{ ...a, id: 'segment', locator: { ...a.locator, segment: { syntax: 'test', prefix: '', suffix: '' } } }], existing: first.units }), /容器/);
+});
 
 const jsonUnit = (id, pointer, source = 'A neutral menu caption.') => ({ id, source, kind: 'dialogue', context: { file: 'menus.json', scene: 'neutral-menu' }, locator: { file: 'menus.json', pointer } });
 const gdUnit = (id, byteStart, source = 'A neutral menu caption.') => ({ id, source, rawSource: source, kind: 'script_display', context: { file: 'menu.gd' }, locator: { file: 'menu.gd', byteStart, byteEnd: byteStart + Buffer.byteLength(source) } });

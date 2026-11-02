@@ -15,7 +15,7 @@ import pgmm from './engine-guides/pgmm.mjs';
 import sgb from './engine-guides/sgb.mjs';
 import bakin from './engine-guides/bakin.mjs';
 
-const version = 'pinhao-engine-operations-17';
+const version = 'pinhao-engine-operations-18';
 const manuals = new Map([
   ["rpgmaker-mv", "rpgmaker", ["MV","RPG Maker MV"], rpgmaker_mv],
   ["rpgmaker-mz", "rpgmaker", ["MZ","RPG Maker MZ"], rpgmaker_mz],
@@ -59,10 +59,13 @@ export function engineOperations(engine = '', tools) {
 当前源代码页由明确配置或EasyRPG设置取得，缺省932；目标路径缺省936是转换策略，不证明原RPG_RT能显示中文。XML是UTF-8也不能据此把LCF原件整体改成UTF-8。严格编码失败、控制符或原生模式差异须保留日志，纠正具体来源与codec，不放宽校验反复烧请求。
 先核对原样交付字节与原生语义重导出，再做少量真实目标字符改文并重新导出原LCF，检查控制符、分支及非目标字段；只改JSON投影不是原生回写成功。配方经验证接回，字体、实际运行器与保存读档另行实机记录，不能拿另一运行器可打开代替原版兼容。` });
   else sections.push({ id: 'unrecognized-engine', title: '引擎未匹配专用手册', text: '尚无与当前引擎标签匹配的专用手册。先查看native_probe与真实资源格式，不套用名称相近引擎的回写规则；沿实际缺口使用当前工具、公开资料和自编适配器，未知保留为未知。' });
+  if (has('write_table_adapter')) sections.push({ id: 'structured-tables', title: '标准表格文字', text: '标准UTF-8 CSV/TSV先用read_resource的view:parsed、capabilityId:builtin-table-cells查看真实字段。查明显示消费者后，用write_table_adapter的selections指定file、keyColumn、sourceColumn、targetColumn、key、reason；主机生成字段解析和正确转义，随后validate_adapter、submit_recipe。键列和未选语言保留；不同语言不能按行号猜对齐。首N分隔符后的整段正文等自定义协议不是标准CSV，使用实际已资格化格式或继续调查，不套此工具。' });
+  if (manual?.family === 'rgss') sections.push({ id: 'rgss-native-constants', title: '原生脚本显示常量', text: '已证明只由玩家窗口消费的静态常量会进入native_inspect；context.source_file给出原生Ruby视图，正式file仍是Scripts载体。只把对应精确常量算作已有文字，不把整份脚本标完成。未证明或动态用途继续调查。原生改文与独立adapter覆盖同一Scripts载体时须联合构建；RGSS_SCRIPT_WRITE_CONFLICT保留两侧成果，不通过覆盖旧载体绕过。' });
+  if (manual?.family === 'godot') sections.push({ id: 'godot-source-trace', title: '已解析来源与用途证据', text: '原生工具可追踪有限静态容器、局部别名和明确Control显示消费者。consumerHints用于补查尚未解释的来源，不等于显示授权。精确标量同时参与逻辑或未知调用时保留待审；容器整体传递不明也不证明每个字段都已用于逻辑。继续沿原定位和消费者调查，不重复拆PCK。' });
   if (has('native_unpack')) sections.push({
   "id": "archives",
   "title": "归档与成员",
-  "text": "native_unpack 接收归档相对路径及可省略的格式，返回 work 根下的成员目录与成员证据。native_repack 使用该成员目录、输出相对路径、格式及原归档相对路径；成熟工具核对成员读回。用这些输出继续调查或编写适配器，不重复猜测已登记工具的参数。"
+  "text": "先用native_archive_index查看成员目录，可传--contains、--offset、--limit（至多100）；它不展开媒体。native_unpack接收归档相对路径、可省略的格式及--files后的一个JSON数组字符串，只读取所选成员；返回完整性、opaqueMembers与原档身份。未展开成员仍在原档，不是丢失。native_repack使用修改目录、输出路径、格式和同一原档，保留其余成员并回读；部分视图不能当完整包。按返回capabilities判断读写，ASAR只读展开，RGSS原格式重包仅v1，不把解包成功当重包支持。"
 });
   sections.push({
   "id": "verification",

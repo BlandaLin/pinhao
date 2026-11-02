@@ -426,14 +426,15 @@ test('a confirmed database name is provided when mentioned beyond adjacent conte
   const units = sameSceneUnits(7); units[0] = { ...units[0], kind: 'database_name', source: 'NeutralName', translation: 'NeutralName' };
   units[6] = { ...units[6], source: 'Talk to NeutralName', translation: 'Talk to NeutralName' };
   const requests = [];
-  const { service, gameDir } = await fixture(t, { units, provider: async (args) => { requests.push({ payload: args.wire.payload, system: args.system }); return provider(args); } });
+  const { service, gameDir } = await fixture(t, { units, provider: async (args) => { requests.push({ payload: args.wire.payload, system: args.system, prompt: args.prompt }); return provider(args); } });
   await withoutProofreading(service);
   const p = await service.createProject({ gameDir });
   for (const unit of (await service.listText({ projectId: p.id })).units.slice(0, 6)) await service.saveText({ projectId: p.id, unitId: unit.id, translation: unit.kind === 'database_name' ? '中性姓名' : unit.translation, expectedRevision: unit.revision });
   await service.startProject({ projectId: p.id }); await eventually(async () => (await service.getProject({ projectId: p.id })).status === 'completed');
   assert.equal(requests.length, 1);
   assert.equal(requests[0].payload.referenceOnly.find((unit) => unit.source === 'NeutralName').currentTranslation, '中性姓名');
-  assert.match(requests[0].system, /统一译名/);
+  assert.match(requests[0].system, /人名、称呼和术语保持一致/);
+  assert.ok(requests[0].prompt.includes('中性姓名'), 'The actual prompt carries the confirmed name, not only the captured host payload');
 });
 const neutralNames = { アルファ: '甲名', ベータ: '乙名', ガンマ: '丙名' };
 const namedScene = () => [
@@ -970,12 +971,16 @@ test('real Python native adapter + AI SDK local HTTP + release and exchange ZIP 
         assert.equal(assignment.files.length, 1);
         const file = assignment.files[0];
         if (!toolReplies.length) { name = 'inspect_context'; args = {}; }
+        else if (file === 'data/CustomPlugin.json' && !results.has('inspect_coverage')) {
+          assert(results.get('inspect_context').coverage.read, 'The resource map must retain a complete coverage reading entry');
+          name = 'inspect_coverage'; args = { limit: 10 };
+        }
         else if (file === 'data/CustomPlugin.json') {
-          const cluster = results.get('inspect_context').coverage.unknownClusters.find(item => item.proseLike);
+          const cluster = results.get('inspect_coverage').unknownClusters.find(item => item.proseLike);
           assert.equal(cluster.field, 'machineKey');
-          if (toolReplies.length === 1) { name = 'read_resource'; args = { root:'source', file }; }
+          if (!results.has('read_resource')) { name = 'read_resource'; args = { root:'source', file }; }
           else {
-            assert.equal(toolReplies.length, 2);
+            assert.equal(toolReplies.length, 3);
             assert.equal(JSON.parse(results.get('read_resource').content).machineKey, 'Leave unchanged');
             name = 'record_coverage_decisions';
             args = { decisions: [{ id: cluster.id, evidenceHash: cluster.evidenceHash, disposition: 'non-display',
@@ -991,10 +996,12 @@ test('real Python native adapter + AI SDK local HTTP + release and exchange ZIP 
     } else {
       const prompt = parsed.messages.at(-1).content, wire = textMaterials.get(prompt);
       assert.ok(wire, 'The actual SDK request uses its captured current-wire material');
-      assert.ok(prompt.startsWith('【待处理文字】'));
+      assert.ok(prompt.startsWith('【交稿方式】'));
+      assert.ok(prompt.indexOf('【待处理文字】') > prompt.indexOf('【按需能力】'));
       const references = new Map(wire.state.entries.map(([ref, id]) => [id, ref]));
-      const text = wire.payload.units.map(unit => [references.get(unit.id), `译${unit.source}`, '']);
-      message = { role: 'assistant', content: JSON.stringify({ text }) };
+      const marker = ref => '['.repeat(wire.state.markerDepth ?? 1) + ref + ']'.repeat(wire.state.markerDepth ?? 1);
+      const text = wire.payload.units.map(unit => `${marker(references.get(unit.id))}\n译${unit.source}`);
+      message = { role: 'assistant', content: [...text, marker('完成')].join('\n') };
     }
     response.setHeader('Content-Type', 'application/json');
     response.end(JSON.stringify({ id: 'fake-response', object: 'chat.completion', created: 1, model: parsed.model, choices: [{ index: 0, message, finish_reason: finishReason }], usage: { prompt_tokens: 10, completion_tokens: 10, total_tokens: 20 } }));
@@ -1026,11 +1033,11 @@ test('real Python native adapter + AI SDK local HTTP + release and exchange ZIP 
   const technicalRequests = requests.filter(request => request.tools);
   assert.equal(technicalRequests.filter(request => request.tools.some(item => item.function.name === 'inspect_game')).length, 0, 'A verified adapter already supplies the technical plan');
   const resourceRequests = file => technicalRequests.filter(request => JSON.parse(request.messages.find(item => item.role === 'user').content).assignment.files[0] === file);
-  assert.equal(resourceRequests('data/CustomPlugin.json').length, 3);
+  assert.equal(resourceRequests('data/CustomPlugin.json').length, 4);
   // NeutralUI.js holds only a literal display call, so scripts.mjs extracts it natively and the byte
   // candidate binds to that unit: the file needs no adaptation job at all.
   assert.equal(resourceRequests('js/plugins/NeutralUI.js').length, 0);
-  assert.equal(technicalRequests.length, 3);
+  assert.equal(technicalRequests.length, 4);
   // The persisted coverage keeps its counters, not the bulky candidate arrays.
   assert.equal(done.coverage.summary.unresolvedCandidates, 0, 'a natively extracted literal leaves no pending adaptation candidate');
   assert.equal(done.coverage.summary.adapterCandidates, 0);

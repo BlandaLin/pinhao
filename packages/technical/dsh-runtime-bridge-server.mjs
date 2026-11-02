@@ -55,6 +55,18 @@ export async function createDshRuntimeBridgeServer({ bridge, state, signal, pers
       let value;
       if (input.url === '/definitions' && input.method === 'GET') value = bridge.definitions();
       else if (input.url === '/status' && input.method === 'GET') value = { done: bridge.session.done(), lessons: renderLessons(getLessons()) };
+      else if (input.url === '/step' && input.method === 'POST') {
+        await bridge.session.control.step();
+        const decision = bridge.session.control.decision({ complete: bridge.session.done() });
+        state.noProgressSteps = state.control.watch.stepsSinceMaterial;
+        if (['replan', 'pause'].includes(decision.action) && !bridge.session.done()) {
+          state.strategyDirective = `Host review: ${decision.reasonCode}. Inspect saved evidence and ready work items ${JSON.stringify(decision.itemIds)}; validate or submit an existing candidate, change the failed approach, or save a concrete evidenced blocker. Do not repeat the same investigation.`;
+          await bridge.session.control.review({ ...decision, action: 'replan',
+            recoveryAllowanceId: decision.recoveryAllowanceId ?? `dsh-review-${state.control.logicalSteps}` });
+        }
+        value = { done: bridge.session.done(), strategy: state.strategyDirective ?? '',
+          lessons: renderLessons(getLessons()), decision, workItems: bridge.session.control.workingSet() };
+      }
       else if (input.url === '/restored' && input.method === 'POST') {
         if (body.sessionId !== bridge.binding.sessionId || !['startup', 'resume'].includes(body.source)) throw fault('DSH_BRIDGE_IDENTITY', 'Unexpected restored session');
         state.backend.restoredSession = { ...body, observedAt: new Date().toISOString() };

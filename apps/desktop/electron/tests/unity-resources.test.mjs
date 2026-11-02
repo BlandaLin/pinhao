@@ -10,6 +10,7 @@ import { validateManagedSourceIdentity, validateManagedTools } from '../../../..
 test('packaging includes the compiled Unity display writer next to its Cecil dependency', async () => {
   const script = await readFile(new URL('../../../../scripts/package-desktop.mjs', import.meta.url), 'utf8');
   assert.ok(script.includes("'managed/Pinhao.UnityDisplay.exe'"));
+  assert.ok(script.includes("'managed/Pinhao.UnityTextAsset.exe'"));
   assert.ok(script.includes("'managed/Mono.Cecil.dll'"));
   assert.ok(script.indexOf('await validateManagedTools(root)') < script.indexOf("'managed/Pinhao.UnityDisplay.exe'"));
 });
@@ -19,7 +20,7 @@ test('managed packaging rejects a substituted Cecil even when a stale provenance
   t.after(() => rm(directory, { recursive: true, force: true }));
   const target = path.join(directory, 'local/dependencies/managed');
   const files = {};
-  for (const file of ['Mono.Cecil.dll', 'Mono.Cecil-LICENSE.txt', 'Pinhao.ManagedPatch.exe', 'Pinhao.UnityDisplay.exe', 'net20/Pinhao.ManagedAssist.dll', 'net40/Pinhao.ManagedAssist.dll']) {
+  for (const file of ['Mono.Cecil.dll', 'Mono.Cecil-LICENSE.txt', 'Pinhao.ManagedPatch.exe', 'Pinhao.UnityDisplay.exe', 'Pinhao.UnityTextAsset.exe', 'net20/Pinhao.ManagedAssist.dll', 'net40/Pinhao.ManagedAssist.dll']) {
     await mkdir(path.dirname(path.join(target, file)), { recursive: true });
     const bytes = Buffer.from(`neutral substituted binary: ${file}`);
     await writeFile(path.join(target, file), bytes);
@@ -36,7 +37,7 @@ test('managed source identities reject stale compiled provenance after source ch
   t.after(() => rm(directory, { recursive: true, force: true }));
   const sourceHashes = {};
   await mkdir(path.join(directory, 'packages/runtime/managed'), { recursive: true });
-  for (const file of ['Patch.cs', 'UnityDisplay.cs', 'Bridge.cs']) {
+  for (const file of ['Patch.cs', 'UnityDisplay.cs', 'UnityTextAsset.cs', 'Bridge.cs']) {
     const content = Buffer.from(`// Neutral ${file}\npublic class NeutralBridge { }\n`);
     await writeFile(path.join(directory, 'packages/runtime/managed', file), content);
     sourceHashes[file] = createHash('sha256').update(content).digest('hex');

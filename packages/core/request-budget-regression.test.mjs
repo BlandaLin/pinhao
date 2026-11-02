@@ -119,12 +119,12 @@ test('an oversized requested complete unit is retained with an honest budget dia
   assert.equal(prompt.budget.characters, requestPromptCharacters(prompt));
 });
 
-test('malformed text tuples recover only independently valid complete JSON arrays', () => {
-  const raw = '{"text":[["u1","完整译文"],["u2","口号中"夺回"的对象"],["u3","另一条完整译文"]]}';
+test('plain text preserves literal quotes while malformed optional information cannot discard completed blocks', () => {
+  const raw = '[u1]\n完整译文\n[u2]\n口号中"夺回"的对象\n[u3]\n另一条完整译文\n[完成]\n[附加信息]\n{"terms": [broken';
   const parsed = parseModelResponse(raw, { finishReason: 'stop', responseProtocol: TEXT_WIRE_VERSION });
-  assert.deepEqual(parsed.text.map(row => row[0]), ['u1', 'u3']);
+  assert.deepEqual(parsed.text, [['u1', '完整译文'], ['u2', '口号中"夺回"的对象'], ['u3', '另一条完整译文']]);
   assert.equal(parsed.responseRepair.code, 'INVALID_RESPONSE');
-  assert.throws(() => parseModelResponse(raw, { finishReason: 'length' }), { code: 'MODEL_OUTPUT_TRUNCATED' });
+  assert.throws(() => parseModelResponse(raw, { finishReason: 'length', responseProtocol: TEXT_WIRE_VERSION }), { code: 'MODEL_OUTPUT_TRUNCATED' });
   assert.throws(() => parseModelResponse(raw, { finishReason: 'stop', responseProtocol: REVIEW_PROTOCOL }), { code: 'INVALID_RESPONSE' });
   assert.throws(() => parseModelResponse('{"text":[["u1","unfinished', { finishReason: 'stop', responseProtocol: TEXT_WIRE_VERSION }), { code: 'INVALID_RESPONSE' });
 });

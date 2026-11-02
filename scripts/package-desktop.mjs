@@ -68,7 +68,7 @@ await cp(path.join(root, 'local/runtime/tool-versions.json'), path.join(stage, '
 for (const resource of ['wolftl/WolfTL.exe', 'uberwolf/UberWolfCli.exe', 'lcf/lcf2xml.exe', 'easyrpg/Player.exe', 'easyrpg/COPYING', 'easyrpg/SOURCE.txt', 'easyrpg/easyrpg-player-0.8.1.1.tar.gz',
   ...[...godotResources, 'LICENSE', 'SOURCE.txt'].map(name => `gdre/${name}`),
   'kirikiri/addFont.dll', 'kirikiri/LICENSE.txt', 'kirikiri/provenance.json',
-  'managed/Mono.Cecil.dll', 'managed/Mono.Cecil-LICENSE.txt', 'managed/Pinhao.ManagedPatch.exe', 'managed/Pinhao.UnityDisplay.exe',
+  'managed/Mono.Cecil.dll', 'managed/Mono.Cecil-LICENSE.txt', 'managed/Pinhao.ManagedPatch.exe', 'managed/Pinhao.UnityDisplay.exe', 'managed/Pinhao.UnityTextAsset.exe',
   'managed/net20/Pinhao.ManagedAssist.dll', 'managed/net40/Pinhao.ManagedAssist.dll', 'managed/provenance.json',
   ...['Pinhao.UnitySchema.exe', 'AssetsTools.NET.dll', 'AssetsTools.NET.MonoCecil.dll', 'Mono.Cecil.dll', 'Mono.Cecil.Rocks.dll', 'AssetsTools.NET-LICENSE.txt', 'Mono.Cecil-LICENSE.txt', 'provenance.json'].map(name => `unity-schema/${name}`),
   'wolfsave/WolfSave.exe', 'wolfsave/LICENSE', 'wolfsave/README.md', 'wolfsave/provenance.json']) {

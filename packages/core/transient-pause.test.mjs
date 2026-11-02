@@ -72,8 +72,9 @@ async function fixture(t, { phase, provider, count = 3, sampleReady = true, fail
     await rm(root, { recursive: true, force: true, maxRetries: 8, retryDelay: 40 });
   });
   await service.saveSettings({ ...defaultSettings(), concurrency: 3, proofreading: phase === 'proofreading', pauseOnLocalFailure: false,
-    // These complete 94-character lines fill one scene per declared output window.
-    connection: { baseUrl, model: 'neutral-transient-fixture', contextWindow: 32768, maxOutputTokens: 2112 } });
+    // The actual cold packer fits sixteen of these complete lines at 1,150 output tokens.
+    // Review keeps its larger window because its existing translations are longer.
+    connection: { baseUrl, model: 'neutral-transient-fixture', contextWindow: 32768, maxOutputTokens: phase === 'translation' ? 1150 : 2112 } });
   const project = await service.createProject({ gameDir });
   if (sampleReady) {
     const store = createStore(dataDir);
@@ -329,12 +330,13 @@ for (const phase of ['translation', 'proofreading']) {
           await delay(100);
         }
         const refs = new Map(args.wire.state.entries.map(([ref, id]) => [id, ref]));
+        const marker = ref => '['.repeat(args.wire.state.markerDepth ?? 1) + ref + ']'.repeat(args.wire.state.markerDepth ?? 1);
         const reply = phase === 'proofreading'
-          ? { reviewed: payload.units.map(unit => refs.get(unit.id)), changes: [], questions: [] }
-          : { text: payload.units.map(unit => [refs.get(unit.id), `中性译文 ${unit.source}`]) };
+          ? marker('完成')
+          : [...payload.units.map(unit => `${marker(refs.get(unit.id))}\n中性译文 ${unit.source}`), marker('完成')].join('\n');
         response.setHeader('content-type', 'application/json');
         response.end(JSON.stringify({ id: `local-transient-${calls.length}`, object: 'chat.completion', created: 1,
-          model: parsed.model, choices: [{ index: 0, message: { role: 'assistant', content: JSON.stringify(reply) }, finish_reason: 'stop' }],
+          model: parsed.model, choices: [{ index: 0, message: { role: 'assistant', content: reply }, finish_reason: 'stop' }],
           usage: { prompt_tokens: 10, completion_tokens: 10, total_tokens: 20 } }));
       })().catch(error => {
         serverErrors.push(error.message);

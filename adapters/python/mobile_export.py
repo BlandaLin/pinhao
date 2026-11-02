@@ -5,6 +5,9 @@ from pathlib import Path, PurePosixPath
 import re
 import zipfile
 
+import mobile_preflight
+from rpgmaker_plugins import inspect_plugins
+
 
 RUNNER_FILES = {
     'chrome_100_percent.pak', 'chrome_200_percent.pak', 'resources.pak', 'icudtl.dat',
@@ -33,7 +36,8 @@ def export(args, helpers):
         raise helpers.WorkerError('MOBILE_ENTRY', '请为当前成品补齐 index.html 游戏入口')
     entry_name = entry.relative_to(source).as_posix()
     entries, excluded = [], []
-    for relative, file in helpers.files_in(source):
+    source_entries = list(helpers.files_in(source))
+    for relative, file in source_entries:
         parts = PurePosixPath(relative).parts
         basename = parts[-1].casefold()
         runner = len(parts) == 1 and (basename in RUNNER_FILES or file.suffix.casefold() in ('.exe', '.dll', '.pdb'))
@@ -43,31 +47,26 @@ def export(args, helpers):
         helpers.safe_member(relative)
         entries.append((relative, file))
     warnings, review = [], []
-    enabled = None
     manifest = game_root / 'js/plugins.js'
-    if manifest.is_file():
-        text = manifest.read_text(encoding='utf-8-sig')
-        match = re.search(r'\$plugins\s*=\s*', text)
-        if match:
-            try:
-                rows, _ = json.JSONDecoder().raw_decode(text[match.end():].lstrip())
-                if isinstance(rows, list):
-                    enabled = {row.get('name') for row in rows if isinstance(row, dict) and row.get('status') is True}
-            except ValueError:
-                pass
+    plugins = inspect_plugins(manifest.read_text(encoding='utf-8-sig')) if manifest.is_file() else {
+        'plugins': [], 'unresolved': ['plugins.js is missing']}
+    enabled = {row.get('name') for row in plugins['plugins'] if row.get('status') is True}
     for file in sorted((game_root / 'js/plugins').glob('*.js')):
-        if file.stem.startswith('PinHao') or enabled is not None and file.stem not in enabled:
+        if file.stem not in enabled and not plugins['unresolved']:
             continue
         if DESKTOP_REFERENCE.search(file.read_text(encoding='utf-8-sig', errors='replace')):
             relative = file.relative_to(source).as_posix()
             review.append({'file': relative, 'kind': 'desktop-api-reference'})
             warnings.append(f'插件 {file.name} 引用了桌面接口，请在手机上检查对应功能')
+    preflight = mobile_preflight.inspect(source, game_root, info['engine'], source_entries, entries, plugins)
+    review.extend(preflight['reviewItems'])
+    warnings.extend(preflight['warnings'])
     title = line(args.get('name'), source.name)
     ident = 'PinHao' + hashlib.sha256(str(args.get('projectId', title)).encode('utf-8')).hexdigest()[:24]
     config = f'title={title}\nid={ident}\nexecFile={entry_name}\nversion=1\ntype=html\n'
     report = {'format': 'JoiPlay RGA', 'engine': info['engine'], 'entryFile': entry_name,
               'files': len(entries), 'desktopFilesExcluded': excluded, 'reviewItems': review,
-              'warnings': warnings, 'phoneRuntimeVerified': False}
+              'warnings': warnings, 'resourcePreflight': preflight, 'phoneRuntimeVerified': False}
     instructions = (
         f'{title} · JoiPlay 手机游玩包\n\n'
         '在 Android 手机上安装 JoiPlay，通过游戏包导入功能选择此 .rga 文件。\n'

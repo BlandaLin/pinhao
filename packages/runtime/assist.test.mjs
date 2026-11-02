@@ -239,16 +239,17 @@ test('assistance plugin installs in copied MV game and preserves command symbols
   t.after(() => rm(root, { recursive: true, force: true }));
   await mkdir(path.join(root, 'js/plugins'), { recursive: true }); await mkdir(path.join(root, 'data'));
   await writeFile(path.join(root, 'js/rpg_core.js'), ''); await writeFile(path.join(root, 'data/System.json'), '{}');
-  await writeFile(path.join(root, 'js/plugins.js'), 'var $plugins = [{"name":"Existing","status":true,"parameters":{"id":"keep"}}];\n// PinHao localization runtime\n$plugins.push({name:"PinHaoLocalization",status:true});\n');
+  await writeFile(path.join(root, 'js/plugins.js'), 'var $plugins = [{"name":"Existing","status":true,"parameters":{"id":"keep"}}];\n// PinHao localization runtime\n$plugins = $plugins.filter(function(plugin) { return plugin.name !== "PinHaoLocalization"; });\n$plugins.push({"name":"PinHaoLocalization","status":true,"parameters":{}});\n');
   assert.equal((await installAssistPlugin(root)).supported, true);
   const plugins = await readFile(path.join(root, 'js/plugins.js'), 'utf8');
   assert.match(plugins, /Existing/); assert.match(plugins, /PinhaoAssist/); assert.match(plugins, /keep/);
   assert.match(plugins, /PinHaoLocalization/);
   await writeFile(path.join(root, 'js/plugins.js'), plugins + '$plugins.push({name:"LaterPlugin",status:true});\n');
-  await installAssistPlugin(root);
+  assert.equal((await installAssistPlugin(root)).status, 'unsupported');
   const updated = await readFile(path.join(root, 'js/plugins.js'), 'utf8');
   assert.equal(updated.match(/"name": "PinhaoAssist"/g).length, 1);
   assert.match(updated, /LaterPlugin/);
+  assert.equal(updated, plugins + '$plugins.push({name:"LaterPlugin",status:true});\n');
 });
 
 test('MZ and www MV installs create a missing plugins directory', async t => {
@@ -282,7 +283,9 @@ test('repeated launch installation preserves MV/MZ bytes, custom plugins and out
       assert.deepEqual(await readFile(pluginsFile), installed);
       assert.equal((await verifyOutput(game, proof)).valid, true);
     }
-    assert.ok(installed.toString('utf8').startsWith(original));
+    assert.ok(installed.toString('utf8').endsWith('\r\n\r\n// user configuration\r\n'));
+    const scope = {}; vm.runInNewContext(installed.toString('utf8'), scope);
+    assert.deepEqual(JSON.parse(JSON.stringify(scope.$plugins[0])), { name: 'Custom', status: true, parameters: { message: 'keep' } });
   }
 });
 

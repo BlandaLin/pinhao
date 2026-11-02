@@ -1,6 +1,7 @@
 import { sha256 } from '../exchange/index.mjs';
-import { relevantGlossary } from './glossary.mjs';
+import { relevantGlossary, containsTerm } from './glossary.mjs';
 import { promptContext, glossaryPromptProjection, preparationPromptProjection } from './provider.mjs';
+import { legacyPromptContext } from './text-context.mjs';
 
 export const SEMANTIC_VERSION = 'pinhao-semantic-1';
 const clone = value => structuredClone(value);
@@ -9,9 +10,9 @@ const stable = value => Array.isArray(value) ? value.map(stable) : value && type
 const digest = value => sha256(stable(value ?? null));
 const fail = message => { const error = new Error(message); error.code = 'SEMANTIC_CONFLICT'; throw error; };
 
-export function createReadReceipt(unit, { translation = true, notes = translation, projection = 'semantic-context-1' } = {}) {
+export function createReadReceipt(unit, { translation = true, notes = translation, projection = 'semantic-context-2' } = {}) {
   const value = { id: unit.id, source: unit.source, sourceHash: unit.sourceHash, kind: unit.kind,
-    context: projection ? promptContext(unit.context) : unit.context, controls: unit.controls, tokens: unit.tokens, ...(notes ? { notes: unit.notes } : {}),
+    context: projection === 'semantic-context-1' ? legacyPromptContext(unit.context) : projection ? promptContext(unit.context) : unit.context, controls: unit.controls, tokens: unit.tokens, ...(notes ? { notes: unit.notes } : {}),
     ...(translation ? { revision: unit.revision, translation: unit.translation, locked: unit.locked, manualLock: unit.manualLock } : {}) };
   return { kind: 'unit', id: unit.id, translation, notes, ...(projection ? { projection } : {}), hash: digest(value) };
 }
@@ -26,12 +27,13 @@ function candidateReadReceipt(unit, candidate) {
 function queryUnits(units, query) {
   return units.filter(unit => (!query.ids || query.ids.includes(unit.id)) && (!query.kinds || query.kinds.includes(unit.kind))
     && (!query.file || unit.context?.file === query.file)
+    && (!query.term || containsTerm(unit.source, query.term))
     && (!query.text || `${unit.source}\n${query.translation ? unit.translation ?? '' : ''}`.includes(query.text)));
 }
 
-export function createQueryReceipt(units, query = {}) {
-  const spec = Object.fromEntries(['text', 'ids', 'kinds', 'file', 'translation'].filter(key => query[key] !== undefined).map(key => [key, clone(query[key])]));
-  return { kind: 'query', query: spec, results: queryUnits(units, spec).map(unit => createReadReceipt(unit, { translation: Boolean(spec.translation) })).sort((a, b) => a.id.localeCompare(b.id)) };
+export function createQueryReceipt(units, query = {}, { projection = 'semantic-context-2' } = {}) {
+  const spec = Object.fromEntries(['text', 'term', 'ids', 'kinds', 'file', 'translation'].filter(key => query[key] !== undefined).map(key => [key, clone(query[key])]));
+  return { kind: 'query', query: spec, ...(projection === 'semantic-context-2' ? { projection } : {}), results: queryUnits(units, spec).map(unit => createReadReceipt(unit, { translation: Boolean(spec.translation), projection })).sort((a, b) => a.id.localeCompare(b.id)) };
 }
 
 /** Share indexes and receipt hashes only within one unchanged project-unit snapshot. */
@@ -54,8 +56,8 @@ export function createSemanticContext(units) {
       return hashes.get(key) === receipt.hash;
     }
     if (receipt.kind === 'query') {
-      const { purpose, ...queryReceipt } = receipt, key = digest(receipt.query);
-      if (!queries.has(key)) queries.set(key, digest(createQueryReceipt(units, receipt.query)));
+      const { purpose, ...queryReceipt } = receipt, key = digest([receipt.query, receipt.projection]);
+      if (!queries.has(key)) queries.set(key, digest(createQueryReceipt(units, receipt.query, { projection: receipt.projection ?? 'semantic-context-1' })));
       return queries.get(key) === digest(queryReceipt);
     }
     return false;

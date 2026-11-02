@@ -4,6 +4,7 @@ import { parse } from 'acorn';
 import { checkedPath } from './adaptation/paths.mjs';
 import path from 'node:path';
 import {inspectEmbeddedConsumerProgram} from './embedded-consumer-chain.mjs';
+import { inspectPlugins } from '../runtime/rpgmaker-plugins.mjs';
 
 export const EMBEDDED_CONTRACT_PROTOCOL = 'pinhao-embedded-command-contract-1';
 const canonical = value => Array.isArray(value) ? value.map(canonical) : value && typeof value === 'object' ? Object.fromEntries(Object.entries(value).sort(([a],[b])=>a.localeCompare(b)).map(([key,item])=>[key,canonical(item)])) : value;
@@ -59,6 +60,70 @@ function pluginMappings(text, command, ast = parse(text, { ecmaVersion: 'latest'
   });
   return mappings;
 }
+function automaticMessageOnly(plugin, mapping) {
+  let handler;
+  walk(plugin.transport.ast, node => {
+    if (node.type === 'AssignmentExpression' && member(node.left, 'pluginCommand')
+        && node.right?.type === 'FunctionExpression' && plugin.transport.handlerStarts.has(node.right.start)
+        && node.right.start <= mapping.consumerSpan.start && node.right.end >= mapping.consumerSpan.end) handler = node.right;
+  });
+  if (!handler) return false;
+  const args = argumentName(handler.params[1]), command = argumentName(handler.params[0]), first = handler.body.body[0];
+  if (args === 'arguments' || command === 'arguments') return false;
+  const direct = handler.body.body.some(branch => branch.type === 'IfStatement'
+    && (branch.consequent.type === 'BlockStatement' ? branch.consequent.body : [branch.consequent]).length === 1
+    && (branch.consequent.type === 'BlockStatement' ? branch.consequent.body[0] : branch.consequent)?.expression?.start === mapping.consumerSpan.start);
+  if (!direct) return false;
+  let safe = true;
+  walk(handler.body, node => {
+    if (node.type === 'VariableDeclarator' && [args, command].includes(argumentName(node.id))) safe = false;
+    if (node.type === 'AssignmentExpression' && argumentName(node.left) === command) safe = false;
+    if (node.type !== 'Identifier' || ![args, 'arguments'].includes(node.name)) return;
+    if (node.start >= mapping.consumerSpan.start && node.end <= mapping.consumerSpan.end) return;
+    if (mapping.usesPrior && plugin.transport.forwardsFirst && node.start >= first.start && node.end <= first.end) return;
+    safe = false;
+  });
+  return safe;
+}
+const memberPath = node => node?.type === 'Identifier' ? node.name : node?.type === 'MemberExpression'
+  ? `${memberPath(node.object)}.${node.computed ? node.property?.value ?? '*' : node.property?.name}` : '';
+function canonicalMessageStore(ast) {
+  const writers = [];
+  walk(ast, node => {
+    if (node.type === 'AssignmentExpression' && memberPath(node.left) === 'Game_Message.prototype.add') writers.push(node.right);
+  });
+  if (writers.length !== 1) return false;
+  const fn = writers[0], body = fn?.body?.body, call = body?.[0]?.expression;
+  return fn.type === 'FunctionExpression' && fn.params.length === 1 && body?.length === 1
+    && call?.type === 'CallExpression' && member(call.callee, 'push') && member(call.callee.object, '_texts')
+    && call.callee.object.object?.type === 'ThisExpression' && call.arguments.length === 1
+    && argumentName(call.arguments[0]) === argumentName(fn.params[0]);
+}
+function replacesMessageStore(ast) {
+  let changed = false;
+  const inspect = (node, parent) => {
+    if (!node || typeof node !== 'object') return;
+    // An escaped constructor/prototype can replace the sink through an alias.
+    if (node.type === 'Identifier' && node.name === 'Game_Message') changed = true;
+    if (node.type === 'Identifier' && node.name === '$gameMessage'
+        && !(parent?.type === 'MemberExpression' && parent.object === node && member(parent, 'add'))) changed = true;
+    if (node.type === 'MemberExpression' && ['Game_Message', '$gameMessage'].includes(node.computed ? node.property?.value : node.property?.name)) changed = true;
+    for (const child of Object.values(node)) if (Array.isArray(child)) child.forEach(value => inspect(value, node));
+    else if (child && typeof child === 'object') inspect(child, node);
+  };
+  inspect(ast);
+  walk(ast, node => {
+    if (node.type === 'AssignmentExpression' || node.type === 'UpdateExpression') {
+      const target = memberPath(node.left ?? node.argument);
+      if (['$gameMessage', '$gameMessage.add', '$gameMessage.*', 'Game_Message', 'Game_Message.prototype',
+        'Game_Message.prototype.add', 'Game_Message.prototype.*'].includes(target)) changed = true;
+    }
+    if (node.type === 'VariableDeclarator' && ['$gameMessage', 'Game_Message'].includes(argumentName(node.id))) changed = true;
+    if (/Function/.test(node.type) && node.params?.some(parameter => ['$gameMessage', 'Game_Message'].includes(argumentName(parameter)))) changed = true;
+    if (node.type === 'CallExpression' && node.arguments.some(argument => ['$gameMessage', 'Game_Message.prototype'].includes(memberPath(argument)))) changed = true;
+  });
+  return changed;
+}
 export function parseEmbeddedCarrier(raw) {
   if (typeof raw !== 'string' || /[\r\n\0]/.test(raw)) throw fail('插件命令不是受支持的单行输入', 'EMBEDDED_TEXT_UNREPRESENTABLE');
   const [command, ...args] = raw.split(' ');
@@ -92,7 +157,7 @@ export function verifyEmbeddedRewrite({ before, after, source, target, contract 
 
 // This deliberately recognizes a narrow, observable carrier and direct display mapping.
 // Arbitrary parser overrides and secondary grammars remain capability-pending.
-export async function qualifyEmbeddedContracts({ gameDir, consumerGameDir=gameDir, units, signal }) {
+export async function qualifyEmbeddedContracts({ gameDir, consumerGameDir=gameDir, units, signal, discover = false }) {
   const embedded = units.filter(unit => unit.locator?.segment);
   if (!embedded.length) return {};
   const dependencies = {};
@@ -100,8 +165,10 @@ export async function qualifyEmbeddedContracts({ gameDir, consumerGameDir=gameDi
   let engine, loader;
   try { engine = await read('js/rpg_objects.js'); loader = await read('js/plugins.js'); }
   catch (error) { if (signal?.aborted) throw error; throw fail('缺少实际MV命令解析器或插件启用入口，无法确认正文表示', 'EMBEDDED_REPRESENTATION_PENDING'); }
+  const engineAst = parse(engine, { ecmaVersion: 'latest' });
+  if (discover && (!canonicalMessageStore(engineAst) || inspectPlugins(loader).unresolved.length)) return { selections: [], contracts: {} };
   let carrier, carrierNode;
-  walk(parse(engine, { ecmaVersion: 'latest' }), node => {
+  walk(engineAst, node => {
     if (node.type === 'AssignmentExpression' && member(node.left, 'command356') && node.right?.type === 'FunctionExpression') { carrier = sourceText(engine, node.right); carrierNode = node.right; }
   });
   const statements = carrierNode?.body.body;
@@ -127,12 +194,13 @@ export async function qualifyEmbeddedContracts({ gameDir, consumerGameDir=gameDi
     const file = `js/plugins/${fields.name}.js`, text = await read(file);
     if (/\.command356\s*=|\[['"]command356['"]\]\s*=/.test(text)) throw fail('启用插件覆盖了命令解析器，需要补充对应协议', 'EMBEDDED_REPRESENTATION_PENDING');
     const transport=inspectEmbeddedConsumerProgram(text);
+    if (discover && replacesMessageStore(transport.ast)) return { selections: [], contracts: {} };
     if(transport.unsafeBuiltins)throw fail('启用插件改变了参数运输所依赖的原生方法，不能沿用当前表示合同','EMBEDDED_REPRESENTATION_PENDING');
     plugins.push({ file, text, transport });
   }
-  const contracts = {};
+  const contracts = {}, selections = [];
   for (const unit of embedded) {
-    const before = unit.locator.segment.prefix + unit.rawSource + unit.locator.segment.suffix;
+    const before = discover ? unit.rawSource : unit.locator.segment.prefix + unit.rawSource + unit.locator.segment.suffix;
     const parsed = parseEmbeddedCarrier(before), claims = [];
     for (const [index,plugin] of plugins.entries()) {
       const priorSafe=baseTransport.overrides&&baseTransport.priorTransparent&&plugins.slice(0,index).every(item=>item.transport.priorTransparent);
@@ -142,17 +210,32 @@ export async function qualifyEmbeddedContracts({ gameDir, consumerGameDir=gameDi
       for (const mapping of [...direct,...plugin.transport.delegatedMappings(parsed.command,parsed.args)]) {
         if(mapping.usesPrior&&!priorSafe)continue;
         if(mapping.methodDependencies?.some(method=>plugins.some((other,otherIndex)=>otherIndex!==index&&(other.transport.methodWrites.has(method)||other.transport.methodWrites.has('*')))))continue;
-        if (projectEmbeddedCommand(parsed, mapping).display === unit.rawSource) claims.push({ mapping, consumerFile: plugin.file });
+        if (discover || projectEmbeddedCommand(parsed, mapping).display === unit.rawSource) claims.push({ mapping, consumerFile: plugin.file });
       }
     }
-    if (claims.length !== 1) throw fail(`正文 ${unit.id} 的实际启用消费者映射仍不明确（${claims.length}处）；请追踪固定参数或join正文来源`, 'EMBEDDED_REPRESENTATION_PENDING', { unitId: unit.id });
+    if (claims.length !== 1) {
+      if (discover) continue;
+      throw fail(`正文 ${unit.id} 的实际启用消费者映射仍不明确（${claims.length}处）；请追踪固定参数或join正文来源`, 'EMBEDDED_REPRESENTATION_PENDING', { unitId: unit.id });
+    }
     const claim = claims[0];
     const contract = { format: EMBEDDED_CONTRACT_PROTOCOL, carrier: 'mv-command356-space-v1', sourceFieldHash: hash(before), target: claim.mapping, consumerFile: claim.consumerFile, dependencies: { ...dependencies },
       ...(path.resolve(consumerGameDir)!==path.resolve(gameDir)?{sourceBinding:{baselineRoot:path.resolve(gameDir),consumerRoot:path.resolve(consumerGameDir)}}:{}),
       proofScope: ['argument-transport', claim.mapping.transport?'bounded-consumer-call-projection':'direct-consumer-projection'] };
     contracts[unit.id] = { ...contract, contractHash: hash(contract) };
+    if (discover) {
+      // Automatic admission is narrower than transport qualification: a known message sink.
+      const plugin = plugins.find(item => item.file === claim.consumerFile);
+      const consumer = plugin.text.slice(claim.mapping.consumerSpan.start, claim.mapping.consumerSpan.end);
+      if (!/^\$gameMessage\s*\.\s*add\s*\(/.test(consumer) || !automaticMessageOnly(plugin, claim.mapping)) { delete contracts[unit.id]; continue; }
+      const projected = projectEmbeddedCommand(parsed, claim.mapping), source = projected.display;
+      if (!source.trim() || !/\p{L}/u.test(source)) { delete contracts[unit.id]; continue; }
+      const start = parsed.command.length + 1 + parsed.args.slice(0, claim.mapping.argvStart).reduce((sum, value) => sum + value.length + 1, 0);
+      const prefix = before.slice(0, start), suffix = before.slice(start + source.length);
+      selections.push({ file: unit.locator.file, pointer: unit.locator.pointer, source,
+        segment: { syntax: 'rpgmaker-plugin-command', prefix, suffix }, contract: contracts[unit.id] });
+    }
   }
-  return contracts;
+  return discover ? { selections, contracts } : contracts;
 }
 export async function assertEmbeddedContractsFresh(contracts, gameDir, {purpose='baseline'}={}) {
   for (const contract of Object.values(contracts ?? {})) {

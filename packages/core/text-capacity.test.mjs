@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
 import { sdkProvider, modelCompatibilityKey, taskPrompt } from './provider.mjs';
 import { packRequestBatches } from './request-batches.mjs';
-import { textRequestLimits, estimateTextTokens, assertTextRequestCapacity } from './text-capacity.mjs';
+import { textRequestLimits, estimateTextTokens, assertTextRequestCapacity, textRequestEstimate, createTextCapacityPlanner } from './text-capacity.mjs';
 
 const unit = (id, source = 'Complete neutral sentence.') => ({ id, source, translation: source, kind: 'message', context: {}, tokens: [] });
 
@@ -75,4 +75,100 @@ test('service-style and final body projections use the same capacity assertion',
   const expected = assertTextRequestCapacity({ connection, system, prompt });
   assert.deepEqual(assertTextRequestCapacity({ connection, messages: [{ role: 'system', content: system }, { role: 'user', content: prompt }] }), expected);
   assert.throws(() => assertTextRequestCapacity({ connection, messages: [{ role: 'user', content: 'x'.repeat(180000) }] }), { code: 'TEXT_REQUEST_CAPACITY_EXCEEDED' });
+});
+
+const profile = { connection: { baseUrl: 'https://neutral.invalid/v1', model: 'neutral', contextWindow: 32768, maxOutputTokens: 4096 },
+  role: 'proofreading', targetLanguage: 'zh-Hans', units: [unit('sample', '完整的中性正文。'.repeat(30))] };
+const observe = (planner, outputTokens, extra = {}) => planner.observe({ ...profile, outputTokens,
+  complete: true, validated: true, finishReason: 'stop', ...extra });
+
+test('cold estimates use short plaintext frames and include complete existing review text', () => {
+  const units = Array.from({ length: 24 }, (_, index) => unit(String(index)));
+  const limits = textRequestLimits(profile.connection), prompt = { system: '', prompt: '' };
+  const estimate = textRequestEstimate(prompt, units, limits);
+  const oldJsonEstimate = units.reduce((sum, value) => sum + Math.ceil(estimateTextTokens(value.source) * 1.5) + 48, 16);
+  assert.ok(estimate.estimatedOutputTokens < oldJsonEstimate - units.length * 35);
+  const existing = [{ ...units[0], translation: 'An existing complete paragraph. '.repeat(40) }];
+  assert.ok(textRequestEstimate(prompt, existing, limits, { role: 'proofreading' }).estimatedOutputTokens
+    > textRequestEstimate(prompt, existing, limits, { role: 'translation' }).estimatedOutputTokens);
+  assert.equal(estimate.reasoningReserve, 1024);
+});
+
+test('only three completed validated normal-stop actual outcomes warm a review profile with a rewrite floor', () => {
+  const planner = createTextCapacityPlanner(), cold = planner.estimate(profile);
+  for (const extra of [{ complete: false }, { validated: false }, { finishReason: 'interrupted' }, { outputTokens: undefined }, { outputTokens: NaN }]) {
+    assert.equal(observe(planner, 20, extra), false);
+  }
+  assert.equal(planner.estimate(profile), cold);
+  observe(planner, 20); observe(planner, 20);
+  assert.equal(planner.estimate(profile), cold);
+  observe(planner, 20);
+  const warm = planner.estimate(profile);
+  assert.ok(warm < cold);
+  assert.ok(warm >= cold * 0.5 + 32, 'Even unchanged reviews reserve substantial full-revision output');
+  const prompt = { system: '', prompt: '', responseProtocol: 'pinhao-review-1' }, limits = textRequestLimits(profile.connection);
+  const options = { ...profile, capacityPlanner: planner };
+  assert.equal(textRequestEstimate(prompt, profile.units, limits, options).estimatedOutputTokens, warm);
+  assert.equal(textRequestEstimate(prompt, profile.units, limits, { ...options, fullRevision: true }).estimatedOutputTokens, cold);
+  assert.equal(textRequestEstimate({ system: '', prompt: '' }, profile.units, limits, options).estimatedOutputTokens, cold,
+    'A full-output review must not borrow sparse differential-review observations');
+});
+
+test('complete revisions and output outliers raise high-water estimates rather than being averaged away', () => {
+  const planner = createTextCapacityPlanner({ maxSamples: 3 }), cold = planner.estimate(profile);
+  for (let index = 0; index < 3; index++) observe(planner, cold);
+  assert.ok(planner.estimate(profile) >= Math.ceil(cold * 1.25) + 32);
+  observe(planner, cold * 3);
+  const peak = planner.estimate(profile);
+  assert.ok(peak >= Math.ceil(cold * 3 * 1.25) + 32);
+  observe(planner, 20); observe(planner, 20);
+  assert.equal(planner.estimate(profile), peak, 'The largest retained outcome, not the mean, owns the margin');
+  observe(planner, 20);
+  assert.ok(planner.estimate(profile) < peak, 'The bounded recent window does not retain every request forever');
+});
+
+test('profiles isolate endpoint/model/reasoning/role/language/capacity while excluding credentials', () => {
+  const planner = createTextCapacityPlanner(), cold = planner.estimate(profile);
+  for (let index = 0; index < 3; index++) observe(planner, 20);
+  const warm = planner.estimate(profile);
+  assert.ok(warm < cold);
+  const credentialed = new URL('https://neutral.invalid/v1/chat/completions');
+  credentialed.username = 'neutral-user'; credentialed.password = 'neutral-secret';
+  credentialed.search = '?api_key=neutral-secret'; credentialed.hash = 'private';
+  assert.equal(planner.estimate({ ...profile, connection: { ...profile.connection,
+    baseUrl: credentialed.toString(), apiKey: 'different-neutral-credential' } }), warm);
+  for (const different of [
+    { connection: { ...profile.connection, baseUrl: 'https://other.invalid/v1' } },
+    { connection: { ...profile.connection, model: 'other-model' } },
+    { connection: { ...profile.connection, reasoning: 'enabled' } },
+    { role: 'translation' }, { targetLanguage: 'en' },
+    { connection: { ...profile.connection, maxOutputTokens: 2048 } },
+    { connection: { ...profile.connection, contextWindow: 65536 } },
+  ]) assert.equal(planner.estimate({ ...profile, ...different }), cold);
+  assert.equal(observe(planner, 20, { connection: { model: 'neutral', baseUrl: 'not-an-endpoint?private=neutral' } }), false);
+});
+
+test('profile memory is bounded and truncation resets successful hints to smaller conservative requests', () => {
+  const planner = createTextCapacityPlanner({ maxProfiles: 2 }), cold = planner.estimate(profile);
+  for (const model of ['neutral', 'second', 'third']) for (let index = 0; index < 3; index++) {
+    observe(planner, 20, { connection: { ...profile.connection, model } });
+  }
+  assert.equal(planner.estimate(profile), cold, 'Least-recently-used profiles are evicted');
+  const second = { ...profile, connection: { ...profile.connection, model: 'second' } };
+  assert.ok(planner.estimate(second) < cold);
+  assert.equal(planner.observe({ ...second, finishReason: 'length' }), true);
+  assert.ok(planner.estimate(second) >= Math.ceil(cold * 1.25));
+  for (let index = 0; index < 2; index++) planner.observe({ ...second, complete: true, validated: true, finishReason: 'stop', outputTokens: 20 });
+  assert.ok(planner.estimate(second) >= Math.ceil(cold * 1.25), 'Post-truncation hints must warm from scratch');
+});
+
+test('learning does not relax configured context, output or reasoning capacity', () => {
+  const planner = createTextCapacityPlanner(), limits = textRequestLimits(profile.connection);
+  for (let index = 0; index < 3; index++) observe(planner, 20);
+  const prompt = { system: '', prompt: 'Required evidence. '.repeat(15000), responseProtocol: 'pinhao-review-1' };
+  const estimate = textRequestEstimate(prompt, profile.units, limits, { ...profile, capacityPlanner: planner });
+  assert.equal(estimate.overLimit, true);
+  assert.equal(estimate.reasoningReserve, 1024);
+  assert.deepEqual(textRequestLimits(profile.connection), limits);
+  assert.throws(() => assertTextRequestCapacity({ connection: profile.connection, ...prompt }), { code: 'TEXT_REQUEST_CAPACITY_EXCEEDED' });
 });

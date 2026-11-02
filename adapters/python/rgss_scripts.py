@@ -7,6 +7,7 @@ import zlib
 from ruby_marshal import Reader, RString
 from rgss_archive import destination
 import adapter_overlay
+import rgss_display
 
 PREFIX = '__pinhao_rgss__/scripts/'
 ENGINES = {'XP', 'VX', 'VX Ace'}
@@ -87,7 +88,144 @@ def prepare(work, resource_root, helpers):
     metadata['additionalSourceRoots'] = roots
     helpers.json_write(metadata_file, metadata)
     helpers.json_write(work / 'technical/rgss-script-sources.json', metadata['rgssScriptSources'])
-    return {'reviewItems': issues, 'sourceRoots': roots, 'scripts': len(records)}
+    added = register_native_units(work, metadata['rgssScriptSources'], helpers)
+    return {'reviewItems': issues, 'sourceRoots': roots, 'scripts': len(records), 'nativeDisplayUnits': added}
+
+
+def protect_literal(source, native):
+    pattern = re.compile(r'%(?:[1-9]\d*\$)?[-+# 0]*(?:\d+|\*)?(?:\.(?:\d+|\*))?[bBdiouxXeEfgGscp]|%%|' + native.CONTROL.pattern)
+    controls, tokens = {}, []
+    def replace(match):
+        token = '{{CTRL%04d}}' % (len(controls) + 1)
+        controls[token] = match[0]
+        tokens.append(token)
+        return token
+    value = pattern.sub(replace, source)
+    if native.TOKEN.findall(value) != tokens or '{{' in native.TOKEN.sub('', value) or '}}' in native.TOKEN.sub('', value):
+        raise ValueError('Reserved control marker in Ruby display literal')
+    return value, controls, tokens
+
+
+def register_native_units(work, layout, helpers):
+    """Append checked literal bindings to the existing native manifest, not a side workbench."""
+    if not layout['scripts']:
+        return 0
+    sources = []
+    for row in layout['scripts']:
+        raw = destination(Path(layout['root']), row['file']).read_bytes()
+        if digest(raw) != row['viewSha256']:
+            raise ValueError('RGSS source view changed during extraction')
+        sources.append({**row, 'text': raw.decode('utf-8')})
+    selections = rgss_display.display_constants(sources)
+    if not selections:
+        return 0
+    manifest = helpers.native.read(work / 'manifest.json')
+    rows = []
+    for selected in selections:
+        try:
+            source, controls, tokens = protect_literal(selected['source'], helpers.native)
+        except ValueError:
+            continue
+        if not helpers.native.TOKEN.sub('', source).strip():
+            continue
+        ident = 'Scripts:static:%s:%s:%s' % (selected['carrier'], selected['slot'], selected['constant'])
+        if ident in manifest['units']:
+            raise ValueError('Repeated native Ruby display identity')
+        binding = {key: selected[key] for key in ('carrier', 'slot', 'objectIndex', 'sourceSha256', 'encoding', 'constant', 'start', 'end', 'literal')}
+        binding['schema'] = 'pinhao-rgss-display-literal-1'
+        binding['sourceFile'] = selected['file']
+        binding['viewSha256'] = selected['viewSha256']
+        context = {'script': selected['scriptName'], 'slot': selected['slot'], 'field': selected['constant'],
+                   'source_file': selected['file'], 'displayConsumers': selected['consumers']}
+        manifest['units'][ident] = {'id': ident, 'file': selected['carrier'],
+            'targets': ['rgss:%s:%s' % (selected['slot'], selected['constant'])], 'source': source,
+            'controls': controls, 'tokens': tokens, 'kind': 'script_display', 'contexts': [context], 'rgss_script': binding}
+        rows.append({'id': ident, 'source': source, 'translation': source, 'source_preview': selected['source'],
+                     'kind': 'script_display', 'tokens': tokens, 'context': context, 'notes': ''})
+    for offset in range(0, len(rows), 120):
+        name = 'Scripts_display_%03d.json' % (offset // 120 + 1)
+        if name in manifest['sheets']:
+            raise ValueError('Repeated native Ruby display sheet')
+        sheet = {'schema': 'rpgmaker-ai-units-v1', 'units': rows[offset:offset + 120]}
+        helpers.native.write(work / 'editable' / name, sheet)
+        helpers.native.write(work / 'technical' / 'row-baseline' / name, sheet)
+        manifest['sheets'][name] = helpers.native.sha(helpers.native.serialized(sheet))
+    helpers.json_write(work / 'manifest.json', manifest)
+    (work / 'technical/manifest.sha256').write_text(helpers.native.sha(helpers.native.serialized(manifest)) + '\n', encoding='ascii')
+    targets_path = work / 'technical/native-targets.json'
+    if targets_path.is_file():
+        targets = helpers.native.read(targets_path)
+        targets['manifestSha256'] = helpers.native.sha(helpers.native.serialized(manifest))
+        for row in rows:
+            unit = manifest['units'][row['id']]
+            targets['units'][unit['id']] = {key: unit[key] for key in ('id', 'file', 'source', 'controls', 'kind', 'targets', 'rgss_script')}
+        helpers.json_write(targets_path, targets)
+        (work / 'technical/native-targets.sha256').write_text(helpers.native.sha(helpers.native.serialized(targets)) + '\n', encoding='ascii')
+    report_path = work / 'extraction-report.json'
+    report = helpers.native.read(report_path)
+    report.update(units=len(manifest['units']), sheets=len(manifest['sheets']), nativeScriptDisplayUnits=len(rows))
+    helpers.json_write(report_path, report)
+    helpers.native.reset_work_cache()
+    return len(rows)
+
+
+def build_native_files(raw_files, manifest, values, patch_raw_strings):
+    """Render only sealed, consumer-qualified literals into their original compressed slots."""
+    groups = {}
+    for ident, unit in manifest['units'].items():
+        binding = unit.get('rgss_script')
+        if not binding:
+            continue
+        if binding.get('schema') != 'pinhao-rgss-display-literal-1' or unit['file'] != binding['carrier']:
+            raise ValueError('Unknown native Ruby display binding')
+        parts = values[ident]
+        if not isinstance(parts, list) or len(parts) != 1:
+            raise ValueError('Ruby literal must remain a complete single unit')
+        groups.setdefault(binding['carrier'], {}).setdefault(binding['slot'], []).append((unit, parts[0]))
+    prepared = {}
+    for file, slots in groups.items():
+        raw = raw_files[file]
+        reader = Reader(raw)
+        changes = {}
+        for slot, updates in slots.items():
+            row = reader.root[slot]
+            payload = row[2]
+            if sum(isinstance(item, list) and len(item) == 3 and item[2] is payload for item in reader.root) != 1:
+                raise ValueError('Shared compressed Ruby slot requires an explicit joint binding')
+            original_raw = inflate(payload.raw)
+            original, encoding = decode(original_raw)
+            edits = []
+            for unit, translation in updates:
+                binding = unit['rgss_script']
+                if payload.index != binding['objectIndex'] or digest(original_raw) != binding['sourceSha256'] or encoding != binding['encoding']:
+                    raise ValueError('Native Ruby script baseline differs')
+                start, end, token = binding['start'], binding['end'], binding['literal']
+                if not isinstance(start, int) or not isinstance(end, int) or not 0 <= start < end <= len(original) or original[start:end] != token:
+                    raise ValueError('Native Ruby literal position differs')
+                value = rgss_display.literal_value(token)
+                if translation != value:
+                    edits.append((start, end, rgss_display.render_literal(translation, token)))
+            result, boundary = original, len(original)
+            for start, end, replacement in sorted(edits, reverse=True):
+                if end > boundary:
+                    raise ValueError('Overlapping Ruby display literals')
+                result = result[:start] + replacement + result[end:]
+                boundary = start
+            if edits:
+                try:
+                    encoded = result.encode(encoding)
+                except UnicodeError as error:
+                    raise ValueError('Translation is not representable in the original Ruby script encoding') from error
+                changes[payload.index] = zlib.compress(encoded)
+        if not changes:
+            continue
+        after = patch_raw_strings(reader, changes)
+        check = Reader(after)
+        if len(check.strings) != len(reader.strings) or any(actual.raw != changes.get(before.index, before.raw)
+                for before, actual in zip(reader.strings, check.strings)):
+            raise ValueError('Ruby native write changed non-target strings')
+        prepared[file] = after
+    return prepared
 
 
 def apply(game_root, work, args, helpers, inventory):
@@ -130,7 +268,10 @@ def apply(game_root, work, args, helpers, inventory):
         target = destination(game_root, carrier)
         before = target.read_bytes()
         if digest(before) != layout['carriers'][carrier]:
-            raise helpers.WorkerError('RGSS_SCRIPT_SOURCE', 'Native Scripts changed before its verified overlays: ' + carrier)
+            raise helpers.WorkerError('RGSS_SCRIPT_WRITE_CONFLICT',
+                'Scripts no longer matches the adapter baseline. Combine native text and script adapter edits in one carrier build, then revalidate before retrying: ' + carrier,
+                diagnostic={'category': 'conflict', 'carrier': carrier, 'expectedSha256': layout['carriers'][carrier],
+                            'actualSha256': digest(before), 'resolution': 'joint-carrier-build'})
         reader = Reader(before)
         after = helpers.patch_raw_strings(reader, changes)
         actual = Reader(after)

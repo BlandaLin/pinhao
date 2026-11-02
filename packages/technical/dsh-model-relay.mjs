@@ -8,10 +8,11 @@ const fault = (code, message) => Object.assign(new Error(message), { code });
 const contextOverflow = text => /context[_ -]?(?:length[_ -]?)?(?:exceed|overflow|limit)|maximum context|too many (?:input )?tokens|prompt (?:is )?too long|input (?:is )?too long|exceeds? (?:the )?(?:model['’]s? )?(?:context|token)|上下文.{0,16}(?:超|限制)/i.test(text);
 
 /** A job-local model endpoint. Provider credentials never enter the runtime process. */
-export async function createDshModelRelay({ connection, requestContext, directory, contentDirectory, signal,
+export async function createDshModelRelay({ connection, capacity, requestContext, directory, contentDirectory, signal,
   onWait, onModelPresented, onFailure, diagnostics = false, fetchImpl = fetch, requestTimeoutMs,
   requestTotalTimeoutMs, maxRequestBytes = 32 * 1024 * 1024 } = {}) {
   if (!connection?.baseUrl || !connection?.model || !connection?.apiKey) throw fault('TECHNICAL_CONNECTION_REQUIRED', 'DSH needs a configured technical model connection');
+  if ((capacity?.maxTokens ?? connection.maxOutputTokens ?? 4096) <= 1) throw fault('TECHNICAL_CONFIGURATION_ERROR', 'Technical model output limit must allow more than one token');
   const upstream = new URL(`${connection.baseUrl.replace(/\/+$/, '')}/chat/completions`);
   if (!['http:', 'https:'].includes(upstream.protocol) || upstream.username || upstream.password) throw fault('TECHNICAL_CONFIGURATION_ERROR', 'Invalid model endpoint');
   const token = randomBytes(32).toString('hex'), controller = new AbortController();
@@ -48,6 +49,14 @@ export async function createDshModelRelay({ connection, requestContext, director
       try { body = JSON.parse(Buffer.concat(chunks).toString('utf8')); }
       catch { return respondError(output, fault('DSH_RELAY_JSON', 'Model request must be JSON'), 400); }
       if (body.model !== connection.model || !Array.isArray(body.messages)) return respondError(output, fault('DSH_RELAY_MODEL', 'Runtime model does not match its host connection'), 400);
+      const requestedOutput = body.max_tokens ?? body.max_completion_tokens;
+      const minimumOutput = Math.min(1024, capacity?.maxTokens ?? connection.maxOutputTokens ?? 4096);
+      if (requestedOutput != null && requestedOutput < minimumOutput) {
+        // A semantic overflow lets the pinned SDK compact before retrying. No paid dispatch occurs.
+        requests.push({ preparedAt: startedAt, model: body.model, dispatched: false,
+          requestedOutput, minimumOutput, recovery: 'sdk-context-compaction' });
+        return respondError(output, fault('context_length_exceeded', 'Maximum context length exceeded: SDK output capacity was clamped below the usable completion reserve; compact context before retrying'), 400);
+      }
       // Include usage on streams while preserving the provider's original completion shape.
       if (body.stream) body.stream_options = { ...body.stream_options, include_usage: true };
       const event = { preparedAt: startedAt, model: body.model, streaming: Boolean(body.stream), messages: body.messages.length };

@@ -25,7 +25,10 @@ from rgss_archive import destination
 import asset_overlay
 import adapter_overlay
 import unity_semantics
-from native_attempt import NativeAttempt
+import unity_textasset_policy
+import unity_textasset_consumers
+import unity_textasset_delimited
+from native_attempt import NativeAttempt, filesystem_path
 
 ENGINE = 'Unity'
 READY = 'native_unity_asset_roundtrip'
@@ -40,7 +43,6 @@ class MissingMonoScript(ValueError):
 
 DISPLAY_KEYS = {'text', 'm_text', 'dialogue', 'dialog', 'line', 'message', 'description', 'displayname',
                 'display_name', 'title', 'subtitle', 'caption', 'label', 'prompt', 'tooltip', 'speaker', 'name'}
-LOCALIZED_KEYS = {'ja', 'jp', 'japanese', 'en', 'english', 'zh', 'zh-cn', 'zh-hans', 'value', 'translation'}
 RESOURCE_KEYS = {'id', 'key', 'guid', 'path', 'file', 'filename', 'asset', 'resource', 'prefab', 'icon', 'sprite',
                  'audio', 'sound', 'voice', 'command', 'script', 'expression', 'condition', 'target', 'type'}
 LOCALIZATION_NAME = re.compile(r'locali[sz]|dialog|scenario|story|strings|messages|subtitles|translation|language', re.I)
@@ -138,7 +140,7 @@ def serialized_files(top, prefix='@'):
 
 
 def load_carrier(path):
-    environment = unitypy().load(Path(path).read_bytes())
+    environment = unitypy().load(filesystem_path(path).read_bytes())
     top = environment.file
     if top.__class__.__name__ not in ('SerializedFile', 'BundleFile') or getattr(top, 'signature', 'UnityFS') != 'UnityFS':
         raise ValueError('Choose serialized Unity assets or UnityFS resource bundles')
@@ -303,39 +305,25 @@ def readable(text):
     return True
 
 
-def json_entries(value, localized, path=(), allowed=False):
-    if isinstance(value, dict):
-        for key, item in value.items():
-            normalized = key.lower()
-            if normalized in RESOURCE_KEYS:
-                continue
-            child_allowed = normalized in DISPLAY_KEYS or localized and normalized in LOCALIZED_KEYS
-            if normalized == 'name':
-                child_allowed = localized or any(k.lower() in DISPLAY_KEYS - {'name'} for k in value)
-            if localized and isinstance(item, str) and not any(k.lower() in DISPLAY_KEYS for k in value):
-                child_allowed = True
-            yield from json_entries(item, localized, path + (key,), child_allowed)
-    elif isinstance(value, list):
-        for index, item in enumerate(value):
-            yield from json_entries(item, localized, path + (index,), allowed or localized)
-    elif allowed and readable(value):
-        yield {'path': list(path), 'source': value, 'kind': 'localized_string'}
+def json_entries(value, localized=False, path=(), allowed=False):
+    entries, _ = unity_textasset_policy.json_entries(value, DISPLAY_KEYS, RESOURCE_KEYS, readable)
+    yield from entries
 
 
-def text_asset_entries(name, text):
+def text_asset_entries(name, text, source_language=None):
     if not isinstance(text, str):
         return None, [], 'script_or_binary_textasset'
     try:
         decoded, encoding, bom = formats.decode_source(text.encode('utf-8', 'surrogateescape'))
     except (UnicodeError, ValueError):
         return None, [], 'script_or_binary_textasset'
-    binding, entries, issue = decoded_text_entries(name, decoded)
+    binding, entries, issue = decoded_text_entries(name, decoded, source_language=source_language)
     if binding:
         binding.update(encoding=encoding, bom=bom)
     return binding, entries, issue
 
 
-def decoded_text_entries(name, text):
+def decoded_text_entries(name, text, source_language=None):
     if not isinstance(text, str) or not text.strip() or any(ord(char) < 32 and char not in '\r\n\t' or 0xD800 <= ord(char) <= 0xDFFF for char in text) or CODE_NAME.search(name):
         return None, [], 'script_or_binary_textasset'
     localized = bool(LOCALIZATION_NAME.search(name))
@@ -345,20 +333,24 @@ def decoded_text_entries(name, text):
             value = core.parse_json(text.encode('utf-8'))
         except (ValueError, UnicodeError):
             return None, [], 'unparsed_json_textasset'
-        entries = list(json_entries(value, localized))
-        return {'format': 'json'}, entries, None if entries else 'json_display_schema_required'
+        entries, issue = unity_textasset_policy.json_entries(value, DISPLAY_KEYS, RESOURCE_KEYS, readable, source_language)
+        return {'format': 'json'}, entries, issue or (None if entries else 'json_display_schema_required')
     first_line = text.splitlines()[0] if text.splitlines() else ''
     table_without_extension = not suffix and localized and any(delimiter in first_line for delimiter in (',', '\t'))
     if suffix in ('.csv', '.tsv') or table_without_extension:
         delimiter = '\t' if suffix == '.tsv' or table_without_extension and '\t' in first_line else ','
+        if delimiter == ',':
+            return unity_textasset_policy.csv_entries(text, delimiter, DISPLAY_KEYS, readable, source_language)
         rows = list(csv.reader(io.StringIO(text, newline=''), delimiter=delimiter, strict=True))
         if not rows or len(set(rows[0])) != len(rows[0]):
             return None, [], 'csv_unique_display_headers_required'
-        columns = [index for index, key in enumerate(rows[0]) if key.lower() in DISPLAY_KEYS or localized and key.lower() in LOCALIZED_KEYS]
+        languages, language_issue = unity_textasset_policy.language_columns(rows[0], source_language) if sum(key.lower() in ('key', 'id') for key in rows[0]) == 1 else ([], None)
+        named_display = any(key.lower() in DISPLAY_KEYS - {'name'} for key in rows[0])
+        columns = [index for index, key in enumerate(rows[0]) if key.lower() in DISPLAY_KEYS - {'name'} or key.lower() == 'name' and named_display or key in languages]
         if any(len(row) != len(rows[0]) for row in rows[1:]):
             return None, [], 'csv_row_width_mismatch'
         entries = [{'path': [r, c], 'source': rows[r][c], 'kind': 'table_cell'} for r in range(1, len(rows)) for c in columns if readable(rows[r][c])]
-        return {'format': 'csv', 'delimiter': delimiter, 'newline': '\r\n' if '\r\n' in text else '\n', 'finalNewline': text.endswith(('\r', '\n'))}, entries, None if entries else 'csv_display_headers_required'
+        return {'format': 'csv', 'delimiter': delimiter, 'newline': '\r\n' if '\r\n' in text else '\n', 'finalNewline': text.endswith(('\r', '\n'))}, entries, ('csv_' + language_issue if language_issue else None) or (None if entries else 'csv_display_headers_required')
     if not (suffix in ('.txt', '.text') or not suffix and localized) or CODE_LINE.search(text) or re.search(r'[{};]|(?:==|=>|:=)', re.sub(r'\{[^{}]*\}|<[^>]*>', '', text)):
         return None, [], 'textasset_format_requires_adapter'
     entries = []
@@ -392,6 +384,15 @@ def render_text_asset(original, binding, updates):
 
 def render_decoded_text(original, binding, updates):
     kind = binding['format']
+    if kind == 'csv-spans':
+        result = original
+        for entry, text in sorted(updates, key=lambda pair: pair[0]['span'][0], reverse=True):
+            stream = io.StringIO(newline='')
+            csv.writer(stream, delimiter=binding['delimiter'], lineterminator='\r\n').writerow([text])
+            start, end = entry['span']
+            replacement = stream.getvalue()[:-2]
+            result = result[:start] + replacement + result[end:]
+        return result
     if kind == 'json':
         value = core.parse_json(original.encode('utf-8'))
         for entry, text in updates:
@@ -506,7 +507,17 @@ def native_entries(obj, carrier, loaded, game=None, schema_context=None):
         tree = obj.parse_as_dict()
     kind, entries, binding, issue = obj.type.name, [], {'format': 'fields'}, None
     if kind == 'TextAsset':
-        binding, entries, issue = text_asset_entries(tree.get('m_Name', ''), tree.get('m_Script', ''))
+        context = schema_context or {}
+        contracts = context.get('textAssetContracts', {})
+        contract = None
+        if contracts:
+            member = next(member for member, serialized in serialized_files(loaded[carrier][1]) if serialized is obj.assets_file)
+            contract = contracts.get((carrier, object_key(member, obj)))
+        if contract:
+            binding, entries, issue = unity_textasset_delimited.entries(tree.get('m_Script', ''), contract, readable)
+        else:
+            binding, entries, issue = text_asset_entries(tree.get('m_Name', ''), tree.get('m_Script', ''),
+                                                       source_language=context.get('sourceLanguage'))
     elif kind == 'TextMesh' and readable(tree.get('m_Text')):
         entries = [{'path': ['m_Text'], 'source': tree['m_Text'], 'kind': 'ui_text'}]
     elif kind == 'MonoBehaviour':
@@ -777,8 +788,8 @@ def _extract(game, work, info, helpers, args, attempt):
                              error={'code': 'UNITY_CARRIER_UNREADABLE', 'message': str(error)})
             continue
         target = destination(source, rel)
-        target.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copyfile(path, target)
+        filesystem_path(target.parent).mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(filesystem_path(path), filesystem_path(target))
         native_hashes[rel] = input_hash
         attempt.resource(rel, phase='load_carrier', status='extracted_unverified', inputSha256=input_hash,
                          originalPreserved=True)
@@ -790,13 +801,22 @@ def _extract(game, work, info, helpers, args, attempt):
                 continue
             path = helpers.clean_path(path)
             target = destination(source, name)
-            target.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copyfile(path, target)
+            filesystem_path(target.parent).mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(filesystem_path(path), filesystem_path(target))
             assemblies[name] = helpers.digest_file(path)
     collector = formats.Collector(source, ENGINE, 'json', int(args.get('batchSize', 120)))
     records, fonts, prefiltered_groups = {}, [], {}
     # The source snapshot is immutable during this extract; new operations get a new scope.
-    schema_context = {'assemblyFilesSha256': assemblies}
+    reader_report = unity_textasset_consumers.discover(source, assemblies)
+    paths = unity_textasset_delimited.resource_paths(loaded) if reader_report['contracts'] else {}
+    reader_bindings = {}
+    for identity, names in paths.items():
+        matches = [unity_textasset_consumers.match_resource(reader_report, name) for name in names]
+        matches = [match for match in matches if match]
+        if len(matches) == 1:
+            reader_bindings[identity] = matches[0]
+    schema_context = {'assemblyFilesSha256': assemblies, 'sourceLanguage': args.get('sourceLanguage'),
+                      'textAssetContracts': reader_bindings}
     for rel, (_, top) in sorted(loaded.items()):
         for key, obj in objects(top).items():
             if obj.type.name == 'Font':
@@ -839,6 +859,10 @@ def _extract(game, work, info, helpers, args, attempt):
                 continue
             if issue:
                 item = {'file': rel, 'object': key, 'name': tree.get('m_Name', ''), 'kind': issue}
+                if obj.type.name == 'TextAsset' and reader_report['contracts']:
+                    item['readerEvidence'] = {'metadataKey': 'textAssetReaderEvidence',
+                                              'contracts': len(reader_report['contracts']),
+                                              'qualified': sum(item.get('displayQualified') is True for item in reader_report['contracts'])}
                 if issue == 'custom_monobehaviour_display_schema_required':
                     script = resolve_script(obj, tree, rel, loaded)
                     if script:
@@ -854,7 +878,8 @@ def _extract(game, work, info, helpers, args, attempt):
             records[file] = {'carrier': rel, 'object': key, 'type': obj.type.name, 'binding': binding}
             for index, entry in enumerate(entries):
                 collector.add(file, ['entries', index, 'source'], entry['source'], entry['kind'],
-                              {'carrier': rel, 'object': key, 'asset': tree.get('m_Name', ''), 'field': entry['path'], 'type': obj.type.name}, 'formatted')
+                              {'carrier': rel, 'object': key, 'asset': tree.get('m_Name', ''), 'field': entry['path'], 'type': obj.type.name,
+                               **{name: entry[name] for name in ('language', 'key') if name in entry}}, 'formatted')
                 if entry.get('displayBinding'):
                     display = entry['displayBinding']
                     collector.units[collector.rows[-1]['id']]['sync_group'] = 'unity-display-' + core.sha(core.serialized([
@@ -868,6 +893,7 @@ def _extract(game, work, info, helpers, args, attempt):
                 'sourceFingerprint': fingerprint, 'nativeSource': str(source), 'recordMap': records,
                 'nativeFilesSha256': native_hashes, 'assemblyFilesSha256': assemblies,
                 'fonts': fonts, 'issues': issues, 'unityPyVersion': UNITYPY_VERSION, 'typeTreeVersion': TYPE_TREE_VERSION}
+    metadata['textAssetReaderEvidence'] = reader_report
     managed = unity_semantics.code_groups(source, metadata, helpers)
     metadata['issues'] = unity_semantics.code_issues(metadata, managed)
     metadata['nativeReviewCatalog'] = copy.deepcopy(metadata['issues'])
@@ -916,9 +942,9 @@ def build(work, editable, output, helpers):
     for rel in metadata['nativeFilesSha256']:
         original = destination(source, rel)
         target = destination(output, rel)
-        target.parent.mkdir(parents=True, exist_ok=True)
+        filesystem_path(target.parent).mkdir(parents=True, exist_ok=True)
         if rel not in changed:
-            shutil.copyfile(original, target)
+            shutil.copyfile(filesystem_path(original), filesystem_path(target))
             continue
         _, top = loaded[rel]
         indexed, expected, nodes_map = objects(top), {}, {}
@@ -943,7 +969,7 @@ def build(work, editable, output, helpers):
             expected[record['object']] = updated
             if nodes is not None:
                 nodes_map[record['object']] = nodes
-        target.write_bytes(save_checked(top, expected, nodes_map))
+        filesystem_path(target).write_bytes(save_checked(top, expected, nodes_map))
     display_reports = unity_semantics.build(source, output, display_updates, helpers)
     hashes = {rel: helpers.digest_file(destination(output, rel)) for rel in metadata['nativeFilesSha256']}
     hashes.update({item['file']: item['outputSha256'] for item in display_reports})
@@ -984,7 +1010,7 @@ def apply_font(path, records, font, family):
             updated['m_FontNames'] = [family]
         obj.save_typetree(updated)
         expected[record['object']] = updated
-    path.write_bytes(save_checked(top, expected))
+    filesystem_path(path).write_bytes(save_checked(top, expected))
 
 
 def assemble(args, helpers):
@@ -1007,17 +1033,17 @@ def assemble(args, helpers):
     font = helpers.path_arg(args, 'fontPath') if args.get('fontPath') else None
     if font:
         family = helpers.font_family(font)
-        font_bytes = font.read_bytes()
+        font_bytes = filesystem_path(font).read_bytes()
     for rel in metadata['nativeFilesSha256']:
         target = destination(output, rel)
-        shutil.copyfile(destination(built, rel), target)
+        shutil.copyfile(filesystem_path(destination(built, rel)), filesystem_path(target))
         records = [item for item in metadata['fonts'] if item['carrier'] == rel]
         if font and records:
             apply_font(target, records, font_bytes, family)
     for rel in report.get('displayFiles', []):
         if rel not in metadata.get('assemblyFilesSha256', {}):
             raise helpers.WorkerError('WRONG_BUILD', 'Display output does not belong to the source managed assemblies')
-        shutil.copyfile(destination(built, rel), destination(output, rel))
+        shutil.copyfile(filesystem_path(destination(built, rel)), filesystem_path(destination(output, rel)))
     if report.get('displayValidation'):
         inventory['displayValidation'] = report['displayValidation']
     if font:

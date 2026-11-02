@@ -57,12 +57,12 @@ test('saved model capacity reaches service text planning for mixed complete long
   const units = rows(45);
   for (const index of [20, 22, 24, 26]) units[index].source = `Complete long neutral ${index}. `.repeat(50);
   const calls = [];
-  const f = await fixture(t, { units, connection: { contextWindow: 32768, maxOutputTokens: 1800 }, provider: async args => {
+  const f = await fixture(t, { units, connection: { contextWindow: 32768, maxOutputTokens: 1200 }, provider: async args => {
     calls.push({ units: args.wire.payload.units, capacity: args.connection, budget: args.budget });
     return { records: records(args.wire.payload), transportRequests: 1 };
   } });
   await f.start(); await complete(f);
-  assert.ok(calls.length > 2); assert.ok(calls.every(call => call.capacity.maxOutputTokens === 1800 && call.capacity.contextWindow === 32768));
+  assert.ok(calls.length > 2); assert.ok(calls.every(call => call.capacity.maxOutputTokens === 1200 && call.capacity.contextWindow === 32768));
   const shortSizes = calls.filter(call => call.units.every(unit => !unit.source.startsWith('Complete long'))).map(call => call.units.length);
   const longSizes = calls.filter(call => call.units.some(unit => unit.source.startsWith('Complete long'))).map(call => call.units.length);
   assert.ok(Math.max(...shortSizes) > Math.max(...longSizes), JSON.stringify(calls.map(call => call.units.length)));
@@ -103,7 +103,7 @@ test('truncated translation keeps completed records and shrinks only remaining i
 
 test('later text requests receive earlier accepted terminology as advisory context before final terminology collection', async t => {
   const calls = [];
-  const f = await fixture(t, { units: rows(70), provider: async args => {
+  const f = await fixture(t, { units: rows(70), connection: { contextWindow: 32768, maxOutputTokens: 1200 }, provider: async args => {
     const payload = args.wire.payload; calls.push({ candidates: payload.terminologyCandidates, prompt: args.prompt });
     return { records: records(payload).map(record => ({ ...record, termChoices: [{ source: 'Alice', translation: '爱丽丝' }] })), transportRequests: 1 };
   } });

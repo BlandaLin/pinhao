@@ -4,6 +4,7 @@ import { fromJSONSchema } from 'zod';
 import { adaptationTools } from './adaptation.mjs';
 import { createEvidenceStore } from './adaptation/evidence.mjs';
 import { boundedToolOutput } from './adaptation/tool-output.mjs';
+import { technicalToolCharacters } from './adaptation/context-map.mjs';
 import { discoverAcceptedBatches, readAcceptedBatch } from '../core/accepted-batches.mjs';
 
 const canonical = value => JSON.stringify(value, (_key, item) => item && typeof item === 'object' && !Array.isArray(item)
@@ -25,6 +26,9 @@ export async function createDshToolBridge(options) {
   if (state.dshToolBridge && digest(state.dshToolBridge.binding) !== digest(identity)) throw fault('DSH_BRIDGE_IDENTITY', 'Saved operation journal belongs to another runtime execution');
   const journal = state.dshToolBridge ??= { version: 1, binding: identity, calls: {}, operations: {} };
   const session = adaptationTools({ ...options, runtimePolicy: 'external' });
+  const projectOutput = value => boundedToolOutput(value, {
+    maxCharacters: technicalToolCharacters(options.connection, state.backend?.capacity),
+  });
   const evidence = createEvidenceStore(workspaceDir), inFlight = new Map(), validators = new Map();
   let queue = Promise.resolve(), closed = false;
   const commit = fn => { const action = queue.then(fn); queue = action.catch(() => {}); return action; };
@@ -62,7 +66,10 @@ export async function createDshToolBridge(options) {
   const reconcile = async operationId => {
     const row = journal.operations[operationId];
     if (!row) throw fault('DSH_OPERATION_MISSING', 'Unknown operation');
-    if (row.outputEvidenceId) return { status: row.status, output: (await evidence.load(row.outputEvidenceId)).value };
+    if (row.outputEvidenceId) {
+      const value = (await evidence.load(row.outputEvidenceId)).value;
+      return { status: row.status, output: projectOutput({ ...value, evidenceId: value.evidenceId ?? row.outputEvidenceId }) };
+    }
     if (inFlight.has(operationId)) return { status: 'running' };
     const receipts = await receiptsFor(operationId), terminal = receipts.find(item => item.phase !== 'started');
     if (row.toolName === 'submit_recipe') {
@@ -85,7 +92,7 @@ export async function createDshToolBridge(options) {
     }
     if (terminal?.outputEvidenceId) {
       const value = (await evidence.load(terminal.outputEvidenceId)).value;
-      const output = boundedToolOutput({ ...value, evidenceId: terminal.outputEvidenceId, receiptId: terminal.receiptId, recovered: true });
+      const output = projectOutput({ ...value, evidenceId: terminal.outputEvidenceId, receiptId: terminal.receiptId, recovered: true });
       await saveResult(row, output, 'reconciled');
       return { status: 'reconciled', output };
     }

@@ -2,7 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { existsSync } from 'node:fs';
-import { mkdtemp, mkdir, writeFile, readFile, rm, symlink, link, readdir } from 'node:fs/promises';
+import { mkdtemp, mkdir, writeFile, readFile, realpath, rm, symlink, link, readdir } from 'node:fs/promises';
+import { execFileSync } from 'node:child_process';
 import path from 'node:path';
 import os from 'node:os';
 import { createWorkspaceExecution } from './adaptation/workspace-execution.mjs';
@@ -28,6 +29,39 @@ async function complete(manager, input) {
   while (result.status === 'running') result = await manager.wait({ ...input, runId: result.runId, waitMs: 100 });
   return result;
 }
+
+test('settle ignores a missing workspace even while a sibling process runs', { timeout: 15000 }, async t => {
+  const f = await fixture(t);
+  const manager = createWorkspaceExecution({ ...f.execution, programs: { node: process.execPath } });
+  t.after(() => manager.close());
+  const missing = path.join(f.root, 'not-created');
+  await manager.settle({ workDir: missing, cancelled: true });
+  const run = await manager.run({ ...f, program: 'node', args: ['-e', 'setTimeout(() => {}, 10000)'] });
+  await manager.settle({ workDir: missing, cancelled: true });
+  assert.equal((await manager.read({ ...f, runId: run.runId })).status, 'running');
+  await manager.close();
+});
+
+for (const kind of ['case', '8.3']) test(`settle waits for and cancels processes through a Windows ${kind} alias`, { skip: process.platform !== 'win32', timeout: 15000 }, async t => {
+  const f = await fixture(t);
+  const manager = createWorkspaceExecution({ ...f.execution, programs: { node: process.execPath } });
+  t.after(() => manager.close());
+  let alias = f.workDir.toLowerCase();
+  if (kind === '8.3') {
+    const encodedPath = Buffer.from(f.workDir, 'utf8').toString('base64');
+    const script = `$ProgressPreference='SilentlyContinue'; Add-Type -TypeDefinition 'using System; using System.Text; using System.Runtime.InteropServices; public class ShortPath { [DllImport("kernel32.dll", CharSet=CharSet.Unicode, SetLastError=true)] public static extern uint GetShortPathName(string p, StringBuilder b, uint n); }'; $p=[Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('${encodedPath}')); $b=New-Object Text.StringBuilder 32768; if ([ShortPath]::GetShortPathName($p,$b,$b.Capacity) -eq 0) { throw [ComponentModel.Win32Exception]::new([Runtime.InteropServices.Marshal]::GetLastWin32Error()) }; [Console]::OutputEncoding=[Text.Encoding]::UTF8; [Console]::Write($b.ToString())`;
+    alias = execFileSync('powershell.exe', ['-NoProfile', '-EncodedCommand', Buffer.from(script, 'utf16le').toString('base64')], { encoding: 'utf8', windowsHide: true, timeout: 10000 });
+    if (alias.toLowerCase() === f.workDir.toLowerCase()) { t.skip('Volume did not provide an 8.3 alias'); return; }
+  }
+  assert.notEqual(alias, f.workDir);
+  assert.equal(await realpath(alias), await realpath(f.workDir));
+  const run = await manager.run({ ...f, program: 'node', args: ['-e', 'setTimeout(() => {}, 500)'] });
+  await manager.settle({ workDir: alias });
+  assert.equal((await manager.read({ ...f, runId: run.runId })).status, 'completed');
+  const next = await manager.run({ ...f, program: 'node', args: ['-e', 'setTimeout(() => {}, 10000)'] });
+  await manager.settle({ workDir: alias, cancelled: true });
+  assert.equal((await manager.read({ ...f, runId: next.runId })).status, 'cancelled');
+});
 
 test('local Python reads an assigned source file through host root mappings without secret environment',
   { skip: !existsSync(process.env.PINHAO_TEST_PYTHON ?? pythonPath) }, async t => {

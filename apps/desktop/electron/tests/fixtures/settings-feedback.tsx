@@ -126,7 +126,7 @@ export async function runSettingsFeedbackChecks() {
     }],
     ['provider reservation capacity explains waiting rather than exhausted credit', async () => {
       const text = errorMessage({ message: 'Temporary reservation limit.', statusCode: 402, category: 'provider_capacity' });
-      assert(text.includes('处理容量已满') && text.includes('等待') && text.includes('请求结束'), 'A structured provider-capacity failure must explain waiting for in-flight requests');
+      assert(text.includes('当前连接的在途请求额度已用满') && text.includes('等待') && text.includes('请求结束'), 'A structured provider-capacity failure must explain waiting for in-flight requests');
       assert(!text.includes('余额'), 'An in-flight request budget must not be presented as insufficient account credit');
     }],
     ['error formatting uses status and category while retaining message-only diagnostics', async () => {

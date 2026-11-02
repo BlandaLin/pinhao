@@ -350,6 +350,33 @@ async function nativeTargetUnits(inventory, units, roots, signal, readBytes = re
   const groups = new Map(), result = [];
   for (const [id, unit] of Object.entries(manifest.units ?? {})) {
     if (!current.has(id) || current.get(id).source !== unit.source || !Array.isArray(unit.targets)) continue;
+    const script = unit.rgss_script;
+    if (script?.schema === 'pinhao-rgss-display-literal-1' && typeof script.sourceFile === 'string') {
+      const file = resourcePath(script.sourceFile);
+      if (!file || file.split('/').some(part => part === '..' || part === '.') || path.isAbsolute(file)) continue;
+      for (const root of roots) {
+        abort(signal);
+        try {
+          const canonical = await realpath(root), target = await realpath(path.resolve(canonical, file)), relative = path.relative(canonical, target);
+          if (relative.startsWith('..') || path.isAbsolute(relative)) continue;
+          const info = await lstat(target); if (!info.isFile() || info.size > 4 * 1024 * 1024) continue;
+          const raw = await readBytes(target, { signal });
+          if (createHash('sha256').update(raw).digest('hex') !== script.viewSha256) continue;
+          const text = raw.toString('utf8'), characters = Array.from(text);
+          if (!Buffer.from(text).equals(raw) || !Number.isSafeInteger(script.start) || !Number.isSafeInteger(script.end)
+              || script.start < 0 || script.end <= script.start || script.end > characters.length
+              || characters.slice(script.start, script.end).join('') !== script.literal) continue;
+          const decoded = decodeQuotedLiteral(script.literal);
+          if (!decoded || !originalValueMatches(unit, decoded.value)) continue;
+          const start = Buffer.byteLength(characters.slice(0, script.start).join('')) + decoded.quoteBytes;
+          const end = Buffer.byteLength(characters.slice(0, script.end).join('')) - decoded.quoteBytes;
+          result.push({ id, legacyId: id, rawSource: decoded.body, locator: { file, byteStart: start, byteEnd: end },
+            nativeEvidence: 'native-rgss-script-display', nativeHashes: { manifestSha256: manifestHash, resourceSha256: script.viewSha256 } });
+          break;
+        } catch (error) { if (!['ENOENT', 'EACCES', 'EPERM'].includes(error.code)) throw error; }
+      }
+      continue;
+    }
     const file = resourcePath(unit.file);
     if (!file || file.split('/').includes('..') || path.isAbsolute(file)) continue;
     const parts = (unit.initial_value ?? unit.source)?.split(/\{\{LINE\d{4}\}\}/).map(part => part.replace(/\{\{CTRL\d{4}\}\}/g, token => unit.controls?.[token] ?? token));
@@ -381,7 +408,10 @@ async function nativeTargetUnits(inventory, units, roots, signal, readBytes = re
         if (Array.isArray(target)) {
           let actual = document;
           for (const part of target) actual = actual && typeof actual === 'object' && Object.hasOwn(actual, part) ? actual[part] : undefined;
-          if (actual === value) result.push({ id, legacyId: id, rawSource: value, locator: { file, pointer: jsonPointer(target) }, nativeEvidence: 'native-manifest-json-target', nativeHashes: evidence });
+          const segment = unit.embedded?.segment;
+          if (segment && actual === segment.prefix + value + segment.suffix) result.push({ id, legacyId: id, rawSource: value,
+            locator: { file, pointer: jsonPointer(target), segment }, nativeEvidence: 'native-manifest-embedded-target', nativeHashes: evidence });
+          else if (!segment && actual === value) result.push({ id, legacyId: id, rawSource: value, locator: { file, pointer: jsonPointer(target) }, nativeEvidence: 'native-manifest-json-target', nativeHashes: evidence });
         } else if (target?.render === 'quoted' && Number.isSafeInteger(target.start) && Number.isSafeInteger(target.end)
           && target.start >= 0 && target.end > target.start && target.end < offsets.length) {
           const start = offsets[target.start], end = offsets[target.end], decoded = decodeQuotedLiteral(raw.subarray(start, end).toString('utf8'));

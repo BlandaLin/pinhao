@@ -19,7 +19,7 @@ test('existing notes remain non-authoritative commentary and cannot invent sourc
   for (const role of ['translation', 'proofreading']) {
     const request = taskPrompt(role, [row], 'zh-Hans', [], [], { reviewProtocol: role === 'proofreading' });
     assert.ok(!request.system.includes('人工备注'), 'Unattributed model notes must not be presented as human authority');
-    assert.match(request.system, /备注.*不是原文.*不是.*保护标记/);
+    assert.match(request.system, /备注.*不是原文.*保护标记/);
     assert.match(request.prompt, /参考备注（非正文）/);
     assert.ok(request.prompt.includes(row.notes), 'Keep the explanation available instead of silently deleting it');
     assert.deepEqual(request.wire.payload.units[0].controls, {});
@@ -31,7 +31,7 @@ test('existing notes remain non-authoritative commentary and cannot invent sourc
 test('the text packet carries complete words and short references, not engineering identity or a JSON unit catalog', () => {
   const literal = 'Do not rewrite unit-canonical-a or scene-canonical-hash inside source.\n\n';
   const prompt = taskPrompt('translation', [unit('unit-canonical-a', literal)], 'zh-Hans', refs, []);
-  assert.ok(prompt.prompt.startsWith('【待处理文字】'));
+  assert.ok(prompt.prompt.startsWith('【交稿方式】'));
   assert.ok(prompt.prompt.includes(literal));
   assert.ok(!prompt.prompt.includes('Private.dll'));
   assert.ok(!prompt.prompt.includes('sourceHash'));
@@ -39,6 +39,8 @@ test('the text packet carries complete words and short references, not engineeri
   assert.ok(!prompt.prompt.includes('reference-canonical-c'));
   assert.ok(!prompt.prompt.includes('linked-private-hash'));
   assert.ok(prompt.prompt.includes('Traveler'));
+  assert.ok(`${prompt.system}\n${prompt.prompt}`.includes('[u1]'), 'The model is taught plain short-tag text blocks');
+  assert.ok(!prompt.system.includes('返回 {"text":'), 'Final translation instructions do not ask for a JSON envelope');
   assert.equal(prompt.wire.payload.units[0].revision, 7, 'captured host material retains the revision');
 });
 
@@ -78,9 +80,10 @@ test('terminology disagreements show only relevant short-bound language hints wi
     { source: 'Alice', recommendation: '爱丽丝', variants: [{ translation: '爱丽丝', count: 3, privatePath: 'not-sent' },
       { translation: '艾丽丝', count: 1 }], unitIds: [units[0].id, refs[0].id, 'unrelated-unit'], revision: 99, hash: 'not-sent' },
     { source: 'UnrelatedTerm', variants: [{ translation: '无关', count: 12 }], unitIds: ['unrelated-unit'] } ] });
-  assert.ok(prompt.system.includes('初翻时可顺手附 terms:'));
-  assert.ok(prompt.system.includes('"read"'));
-  assert.ok(prompt.system.includes('decisions:'));
+  const instructions = `${prompt.system}\n${prompt.prompt}`;
+  assert.ok(instructions.includes('terms'), 'Optional terminology evidence remains available alongside plain text');
+  assert.ok(instructions.includes('read'), 'The provided reference material remains queryable');
+  assert.ok(instructions.includes('decisions'), 'Scoped semantic decisions remain an optional capability');
   assert.ok(prompt.prompt.includes('【译名分歧】'));
   const hint = JSON.parse(prompt.prompt.split('【译名分歧】\n')[1].split('\n')[0]);
   assert.deepEqual(hint, [{ source: 'Alice', recommendation: '爱丽丝', variants: [{ translation: '爱丽丝', count: 3 },
@@ -91,19 +94,32 @@ test('terminology disagreements show only relevant short-bound language hints wi
   assert.ok(!prompt.system.includes('收录规则'));
   const review = taskPrompt('proofreading', units, 'zh-Hans', refs, [], { reviewProtocol: true });
   assert.ok(!review.system.includes('初翻时可顺手附 terms:'));
-  assert.ok(review.system.includes('"read"'));
+  assert.ok(`${review.system}\n${review.prompt}`.includes('read'));
+  assert.ok(`${review.system}\n${review.prompt}`.includes('[完成]'), 'Differential review requires an explicit completion acknowledgement');
   const a = refFor(review.wire, units[0].id), b = refFor(review.wire, units[1].id);
   const reviewed = decodeTextResponse({ reviewed: [a, b], terms: [[a, 'Alice', '爱丽丝']] }, review.wire);
   assert.equal(reviewed.review.edits.length, 0);
   assert.equal(reviewed.termWarnings[0].code, 'REVIEW_TERMS_IGNORED');
 });
 
-test('root tuple streaming survives every split and never checkpoints a nested array or quoted text property', () => {
-  const raw = JSON.stringify({ notes: '文字包含 "text":[["u1","假的"]]', read: [{ text: [['u1', '假的']] }], text: [['u1', '完整\n\n{{name}}'], ['u2', '第二条']] });
+test('plain block streaming survives every split and never checkpoints auxiliary arrays or quoted text properties', () => {
+  const raw = '[u1]\n完整\n\n{{name}}\n[u2]\n第二条\n[完成]\n[附加信息]\n'
+    + JSON.stringify({ notes: '文字包含 "text":[["u1","假的"]]', read: [{ text: [['u1', '假的']] }] });
   const scan = textWireScanner(), rows = [];
   for (const char of raw) rows.push(...scan(char));
+  rows.push(...scan.final({ finishReason: 'stop' }));
   assert.deepEqual(rows, [['u1', '完整\n\n{{name}}'], ['u2', '第二条']]);
-  assert.deepEqual(textWireScanner()(JSON.stringify({ read: [{ text: [['u1', '假的']] }] })), []);
+  assert.deepEqual(textWireScanner()('[附加信息]\n' + JSON.stringify({ read: [{ text: [['u1', '假的']] }] })), []);
+});
+
+test('plain EOF completes the last literal block only after a normal provider stop', () => {
+  const raw = '[u1]\n完整\n[u2]\n最后一条\n\n';
+  for (const finishReason of ['stop', 'length', undefined]) {
+    const scan = textWireScanner();
+    assert.deepEqual(scan(raw), [['u1', '完整']]);
+    assert.deepEqual(scan.final({ finishReason }), finishReason === 'stop' ? [['u2', '最后一条\n']] : [],
+      'Only a clean EOF removes one protocol framing EOL and accepts the remaining complete body');
+  }
 });
 
 test('review only returns changes and keeps exact target coverage with strict host D2 fields', () => {
@@ -227,11 +243,13 @@ test('packing estimates the exact same compact projection and never splits full 
   }
 });
 
-test('only complete new-wire tuples recover from malformed JSON without guessing user text', () => {
-  const raw = '{"text":[["u1","完整改文"],["u2","口号中"夺回"的对象"]]}';
+test('the new wire reads literal quotes and braces without JSON escaping or legacy envelope salvage', () => {
+  const raw = '[u1]\n完整改文\n[u2]\n口号中"夺回"的对象 {不是结构}\n[完成]';
   const parsed = parseModelResponse(raw, { finishReason: 'stop', responseProtocol: TEXT_WIRE_VERSION });
-  assert.deepEqual(parsed.text, [['u1', '完整改文']]);
+  assert.deepEqual(parsed.text, [['u1', '完整改文'], ['u2', '口号中"夺回"的对象 {不是结构}']]);
   assert.throws(() => parseModelResponse(raw, { finishReason: 'length', responseProtocol: TEXT_WIRE_VERSION }), { code: 'MODEL_OUTPUT_TRUNCATED' });
+  assert.throws(() => parseModelResponse('{"text":[["u1","旧网络回包"]]}',
+    { finishReason: 'stop', responseProtocol: TEXT_WIRE_VERSION }), { code: 'INVALID_RESPONSE' });
 });
 
 test('repeated identical context evidence is complete once while independent target text remains complete', () => {
@@ -284,15 +302,16 @@ test('shared context references bind content across continued reading notes and 
   assert.equal(resumed.prompt.split('A complete earlier scene.').length - 1, 1);
 });
 
-test('real SDK streaming checkpoints canonical host IDs and returns the compact protocol without altering literal text', async t => {
+test('real SDK streaming checkpoints canonical host IDs from plain blocks without altering literal text', async t => {
   const prompt = taskPrompt('translation', [units[0]], 'zh-Hans');
   const ref = refFor(prompt.wire, units[0].id), value = `完整\n\n{{name}} unit-canonical-a`;
-  const body = JSON.stringify({ text: [[ref, value, '']] });
+  const body = `[${ref}]\n${value}\n[完成]`;
   const server = http.createServer(async (request, response) => {
     let received = ''; for await (const chunk of request) received += chunk;
     const sent = JSON.parse(received);
     assert.equal(sent.messages.at(-1).content, prompt.prompt);
     assert.ok(!sent.messages.at(-1).content.includes('Private.dll'));
+    assert.equal(sent.response_format, undefined, 'Plain final text does not enable JSON response mode');
     response.writeHead(200, { 'Content-Type': 'text/event-stream' });
     for (const text of [body.slice(0, 18), body.slice(18)]) response.write(`data: ${JSON.stringify({ id: 'neutral-wire', choices: [{ index: 0, delta: { content: text }, finish_reason: null }] })}\n\n`);
     response.end(`data: ${JSON.stringify({ id: 'neutral-wire', choices: [{ index: 0, delta: {}, finish_reason: 'stop' }], usage: { prompt_tokens: 10, completion_tokens: 10, total_tokens: 20 } })}\n\ndata: [DONE]\n\n`);

@@ -97,7 +97,7 @@ def unpack(archive, output, helpers, *, names=None, skip=(), existing=False, inv
     for name, offset, length in entries:
         helpers.safe_member(name)
         destination(output, name)
-        if offset is None:
+        if offset is None and (requested is None or name in requested) and name not in omitted:
             source = helpers.clean_path(destination(sidecar, name))
             if not source.is_file() or source.stat().st_size != length:
                 raise ValueError('ASAR unpacked file missing or changed: ' + name)

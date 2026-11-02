@@ -137,7 +137,7 @@ def attr(value, key, default=None):
     return value.attrs.get('@' + key, default) if isinstance(value, RObject) else default
 
 
-def extract(game, output, batch_size=120):
+def extract(game, output, batch_size=120, embedded_text=None):
     info = probe(game)
     if info['support'] != 'standard_text_roundtrip':
         raise ValueError('Engine not ready for extraction: ' + info['support'] + '; run probe/unpack first')
@@ -154,6 +154,20 @@ def extract(game, output, batch_size=120):
             docs[rel] = readers[rel].root
         else:
             docs[rel] = parse_json(raw)
+    embedded = {}
+    if embedded_text is not None:
+        if ruby or embedded_text.get('format') != 'pinhao-native-embedded-1' or Path(embedded_text['root']).resolve() != root:
+            raise ValueError('Embedded consumer source does not match native input')
+        for file, expected in {**embedded_text['sourceFiles'], **embedded_text['dependencies']}.items():
+            raw = destination(root, file).read_bytes()
+            if sha(raw) != expected: raise ValueError('Embedded consumer dependency changed: ' + file)
+            raw_files[file] = raw
+        for selection in embedded_text['selections']:
+            parts = tuple(int(part) if part.isdigit() else part.replace('~1', '/').replace('~0', '~')
+                          for part in selection['pointer'][1:].split('/'))
+            key = (selection['file'], parts)
+            if key in embedded: raise ValueError('Repeated embedded text target')
+            embedded[key] = selection
     rows, units, review, used, ownership = [], {}, [], {}, {}
     counts = collections.Counter()
 
@@ -276,6 +290,14 @@ def extract(game, output, batch_size=120):
                 links.append({'kind': 'map-transfer', 'command': i, 'state': 'confirmed' if direct else 'unknown',
                               'target': {'map': 'Map%03d' % params[1]} if direct else None,
                               'coordinates': params[2:4] if direct else None})
+            elif code == 356 and not ruby and (file, tuple(path + [0])) in embedded:
+                selection = embedded[(file, tuple(path + [0]))]
+                segment, source = selection['segment'], selection['source']
+                if params[0] != segment['prefix'] + source + segment['suffix']:
+                    raise ValueError('Embedded source field changed')
+                ident = add(file, [path + [0]], [source], 'plugin_message', {**ctx,
+                    'displayConsumer': selection['contract']['consumerFile']})
+                if ident: units[ident]['embedded'] = selection
             elif code in (355, 655, 356, 357, 108, 408):
                 review.append({'file': file, 'context': ctx, 'kind': 'event_script_plugin_or_comment', 'editable': False})
             i += 1
@@ -565,11 +587,29 @@ def expected_files(work, manifest, values, *, baseline_files=None):
         from text_formats import build_spans
         return build_spans(work, manifest, values, baseline_files=baseline_files)
     raw_files = (baseline_files if baseline_files is not None else verified_baseline(work, manifest))
+    script_files = {}
+    if any(unit.get('rgss_script') for unit in manifest['units'].values()):
+        import rgss_scripts
+        script_files = rgss_scripts.build_native_files(raw_files, manifest, values,
+                                                      lambda reader, changes: reader.patch_raw(changes))
     plans = collections.defaultdict(dict)
     for ident, unit in manifest['units'].items():
+        if unit.get('rgss_script'): continue
         parts = values[ident]
         if parts == restore(unit.get('initial_value', unit['source']), unit): continue
         targets = unit['targets']
+        if unit.get('embedded'):
+            binding = unit['embedded']
+            if len(parts) != 1 or len(targets) != 1 or any(char in parts[0] for char in '\r\n\0'):
+                raise ValueError('Embedded message must remain one physical command')
+            segment, contract = binding['segment'], binding['contract']
+            original = at(parse_json(raw_files[unit['file']]), targets[0])
+            if original != segment['prefix'] + binding['source'] + segment['suffix'] or sha(original.encode('utf-8')) != contract['sourceFieldHash']:
+                raise ValueError('Embedded command baseline changed')
+            mapping = contract['target']
+            if mapping['mode'] == 'one-argument' and ' ' in parts[0]:
+                raise ValueError('A single command argument cannot contain a space')
+            parts = [segment['prefix'] + parts[0] + segment['suffix']]
         if unit['kind'] == 'choice': parts = parts * len(targets)
         if len(parts) != len(targets): raise ValueError('Changed physical line count: ' + ident)
         for target, text in zip(targets, parts):
@@ -579,6 +619,10 @@ def expected_files(work, manifest, values, *, baseline_files=None):
             plan[key] = text
     prepared = {}
     for file, raw in raw_files.items():
+        if file in script_files:
+            if plans[file]: raise ValueError('Native Ruby literal conflicts with another carrier write')
+            prepared[file] = script_files[file]
+            continue
         if not plans[file]:
             prepared[file] = raw
         elif manifest['backend'] == 'json':

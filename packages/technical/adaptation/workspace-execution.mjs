@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto';
-import { mkdir, open, readFile, readdir, rename, stat } from 'node:fs/promises';
+import { mkdir, open, readFile, readdir, realpath, rename, stat } from 'node:fs/promises';
 import path from 'node:path';
 import { checkedPath, ensureRoot, independentRoot, readSlice, relativeFile } from './paths.mjs';
 import { launchManagedProcess, processEnvironment } from '../../core/managed-process.mjs';
@@ -201,7 +201,13 @@ export function createWorkspaceExecution({ pythonPath, programs = {}, authorize 
       return api.read(input);
     },
     async settle({ workDir, cancelled = false }) {
-      const active = [...runs.values()].filter(item => path.resolve(item.root) === path.resolve(workDir));
+      let root = path.resolve(workDir);
+      try { root = await realpath(root); }
+      catch (error) {
+        // Cancellation can reach cleanup before the workspace is created.
+        if (error.code !== 'ENOENT') throw error;
+      }
+      const active = [...runs.values()].filter(item => item.root === root);
       if (cancelled) for (const item of active) item.process.stop(Object.assign(new Error('任务已暂停'), { code: 'PROCESS_CANCELLED' }));
       await Promise.all(active.map(item => item.finish));
     },

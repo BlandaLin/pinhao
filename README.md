@@ -11,17 +11,17 @@
 <p align="center">中文 · <a href="README.en.md">English</a></p>
 
 <p align="center">
-  <a href="https://github.com/BlandaLin/pinhao/releases/tag/v0.5.8"><strong>下载中文版</strong></a> ·
-  <a href="https://github.com/BlandaLin/pinhao/releases/tag/v0.5.8-en.1">Download English</a> ·
+  <a href="https://github.com/BlandaLin/pinhao/releases/tag/v0.6.0"><strong>下载中文版</strong></a> ·
+  <a href="https://github.com/BlandaLin/pinhao/releases/tag/v0.6.0">Download English</a> ·
   <a href="#开始使用">开始使用</a> ·
   <a href="https://github.com/BlandaLin/pinhao/issues">反馈问题</a>
 </p>
 
-<p align="center">0.5.8 公开测试版 · Windows 10 / 11 x64 · 软件免费，自备模型 API</p>
+<p align="center">0.6.0 公开测试版 · Windows 10 / 11 x64 · 软件免费，自备模型 API</p>
 
 ![拼好汉化 0.5.8 中文界面：灯塔来信示例工程的制作总览](.github/media/overview.jpg)
 
-<p align="center"><sub>0.5.8 示例界面，使用自写工程与预先填写的译文。</sub></p>
+<p align="center"><sub>截图来自 0.5.8 界面，使用自写工程与预先填写的译文；本版变化见下方说明。</sub></p>
 
 ## 从一款游戏开始
 
@@ -33,12 +33,22 @@
 
 **导入游戏 → 提取文字 → 翻译与校对 → 生成成品 → 打开游戏检查**
 
+## 0.6.0 更新
+
+- **文字请求改用短标记与纯文字分段。** 模型不再抄写长编号和 JSON 正文；校对只返回改文与完成标记，工程定位由软件保存。
+- **减少重复传输与返工。** 请求区分正文语境与工程证据，共用背景只发一份；中断时保存完整收到且通过检查的文字，恢复后补剩余内容。
+- **统一容量与技术任务接线。** 修正默认容量、压缩预留和发送前判断的冲突；大工具结果保存完整内容，再按需补读，避免巨型清单反复挤占请求。
+- **加强原生提取与回写。** 增加 CSV/TSV 单元格适配、Unity 语言列选择和已核对正文协议；补充 MV、RGSS、Godot 的静态显示来源追踪。归档支持分页索引和选定成员读取。
+- **补齐成品检查。** MV/MZ 自有插件使用静态注册；对已识别的名称逻辑依赖保留原名身份。JoiPlay 导出增加资源大小写、缺失项和音频格式预检。
+
+[完整更新与已知问题](docs/release-notes/v0.6.0.md)
+
 ## 开始使用
 
 | 界面版本 | Windows 下载 | 新配置的默认翻译目标 |
 | --- | --- | --- |
-| 中文 | [pinhao-0.5.8-Windows-x64.zip](https://github.com/BlandaLin/pinhao/releases/download/v0.5.8/pinhao-0.5.8-Windows-x64.zip) | 简体中文 |
-| English | [pinhao-0.5.8-en-Windows-x64.zip](https://github.com/BlandaLin/pinhao/releases/download/v0.5.8-en.1/pinhao-0.5.8-en-Windows-x64.zip) | 英语 |
+| 中文 | [拼好汉化-0.6.0-Windows-x64.zip](https://github.com/BlandaLin/pinhao/releases/download/v0.6.0/%E6%8B%BC%E5%A5%BD%E6%B1%89%E5%8C%96-0.6.0-Windows-x64.zip) | 简体中文 |
+| English | [pinhao-0.6.0-en-Windows-x64.zip](https://github.com/BlandaLin/pinhao/releases/download/v0.6.0/pinhao-0.6.0-en-Windows-x64.zip) | 英语 |
 
 1. **完整解压，运行 `PinhaoWorkbench.exe`。** 软件可以放在任意可写目录，不要只取出 EXE。
 2. **在“设置”连接模型。** 填写 OpenAI 兼容服务的 API 地址、模型名和密钥，保存后测试连接。技术任务与文字任务可使用不同模型；翻译和校对共用文字模型。目标语言也在这里修改。
@@ -68,9 +78,9 @@
 
 ## 翻译、校对与文字工作台
 
-翻译按完整语义单元组织，附带已有的场景、人物和术语参考。初翻后进行场景校对，最后处理实际存在的译名分歧；译名整理不再是开工前的一整轮付费任务。
+翻译按完整语义单元组织，附带已有的场景、人物和术语参考。正文请求与回包使用短标记纯文字分段，工程定位留在本机。初翻后进行场景校对，最后处理实际存在的译名分歧；译名整理不再是开工前的一整轮付费任务。
 
-文字工作台可搜索原文和译文、按状态筛选、输入页码跳转，并查看上下文。“已审阅”表示场景校对结果已保存；“校对已完成”表示收尾检查和提交已结束。暂停后从保存的进度继续。
+文字工作台可搜索原文和译文、按状态筛选、输入页码跳转，并查看上下文。“已审阅”表示场景校对结果已保存；“校对已完成”表示收尾检查和提交已结束。断流或暂停时保留通过检查的完整成果，未完成条目不冒充已审阅，继续时只补剩余部分。
 
 ![拼好汉化 0.5.8 中文文字工作台：原文、译文与上下文](.github/media/text-workbench.jpg)
 
@@ -80,7 +90,7 @@
 
 - 内置思源宋体、思源黑体和霞鹜文楷，也可使用游戏原字体或自己的 TTF / OTF。
 - 游玩辅助按引擎提供角色、物品、金钱、移动、开关和变量编辑；回想解锁需要找到对应游戏的解锁条件。
-- RPG Maker MV / MZ 成品可导出 JoiPlay `.rga` 手机游玩包。
+- RPG Maker MV / MZ 成品可导出 JoiPlay `.rga` 手机游玩包，导出报告列出资源兼容检查结果；仍须在设备上检查实际游玩。
 - 可选图片文字处理支持平整背景 PNG 区域。
 
 <details>
@@ -106,7 +116,7 @@
 
 遇到问题，请在 [Issues](https://github.com/BlandaLin/pinhao/issues) 提供版本、操作步骤、错误提示和相关截图。漏字时指出具体对白或菜单；译名问题附几句上下文即可。**遮盖密钥和个人信息，不要公开上传整款游戏、私人工程或存档。**
 
-[0.5.8 更新与已知问题](docs/release-notes/v0.5.8.md#known-issues) · [英文版说明](docs/release-notes/v0.5.8-en.1.md) · [反馈与贡献](docs/CONTRIBUTING.md)
+[0.6.0 更新与已知问题](docs/release-notes/v0.6.0.md#known-issues) · [English release notes](docs/release-notes/v0.6.0.md#english) · [反馈与贡献](docs/CONTRIBUTING.md)
 
 ## 开发
 

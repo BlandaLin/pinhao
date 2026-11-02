@@ -6,11 +6,13 @@ import { ToolLoopAgent, NoSuchToolError, jsonSchema, tool } from 'ai';
 import { createOpenAICompatible } from '@ai-sdk/openai-compatible';
 import { readPublicPage, searchPublicReferences } from './research.mjs';
 import { createTextAdapter, createLiteralSelections, createEmbeddedSelections } from './adaptation/text-adapter.mjs';
+import { createTableSelections } from './adaptation/table-adapter.mjs';
 import { PYTHON_ADAPTER_PROTOCOL } from './adaptation/python-adapter-driver.mjs';
 import { accumulateVerifiedExtractions } from './adaptation/verified-batches.mjs';
 import { boundedToolOutput, projectToolResultGroup, deduplicateToolMessages, restoreToolCheckpoint, supplementalObservations } from './adaptation/tool-output.mjs';
 import { createNativeReviewReferences, nativeReviewReferenceSchema, nativeDisplayReferenceSchema, nativeReviewReferenceRecovery } from './adaptation/native-review-references.mjs';
 import { createEvidenceStore } from './adaptation/evidence.mjs';
+import { contextMap, technicalToolCharacters } from './adaptation/context-map.mjs';
 import { persistAcceptedBatch } from '../core/accepted-batches.mjs';
 import { unitFileMatches } from './adaptation/unit-location.mjs';
 import { nativeFailureArtifacts, readNativeArtifact, inspectNativeArtifact } from './adaptation/native-failure.mjs';
@@ -274,7 +276,10 @@ const trustedToolArgs = {
   native_probe: { flags: [], hint: '本工具不接受任何参数' },
   native_roundtrip: { flags: [], hint: '本工具不接受任何参数' },
   native_accept: { flags: [], hint: '本工具不接受任何参数' },
-  native_unpack: { positional: [1, 2], hint: '本工具接受 [归档相对路径, 可选格式]，格式可省略' },
+  native_archive_index: { positionalPrefix: [1, 2], flags: ['--offset', '--limit', '--contains'], ranges: { '--limit': [1, 100] },
+    hint: '本工具接受 [归档相对路径, 可选格式]，之后可加 --contains、--offset、--limit（上限100）；只读目录，不展开成员' },
+  native_unpack: { positionalPrefix: [1, 2], flags: ['--files'],
+    hint: '本工具接受 [归档相对路径, 可选格式]，之后可加 --files 及成员路径JSON数组；先用native_archive_index查看目录' },
   native_repack: { positional: 4, hint: '本工具接受 [工作目录, 输出相对路径, 格式, 原归档相对路径] 四个位置参数' },
   native_review_decide: { positional: 1, hint: '本工具接受一份 JSON 参数：一个决定或决定数组（同一文件的多组可一次提交，最多 50 条）' },
 };
@@ -296,8 +301,14 @@ export function prepareTrustedToolArgs(tool, args) {
       `需要 ${allowed.join(' 或 ')} 个位置参数，实际收到 ${args.length} 个（${received || '空'}）`, spec);
     return { args: [...args], adjusted: [] };
   }
-  const prepared = [], adjusted = [];
-  for (let index = 0; index < args.length; index += 2) {
+  let start = 0;
+  if (spec.positionalPrefix) {
+    const firstFlag = args.findIndex(arg => String(arg).startsWith('--'));
+    start = firstFlag < 0 ? args.length : firstFlag;
+    if (!spec.positionalPrefix.includes(start)) throw toolArgumentError(tool, `需要 ${spec.positionalPrefix.join(' 或 ')} 个前置位置参数，实际收到 ${start} 个`, spec);
+  }
+  const prepared = args.slice(0, start), adjusted = [];
+  for (let index = start; index < args.length; index += 2) {
     const name = args[index], value = args[index + 1];
     if (typeof name !== 'string' || !name.startsWith('--') || !spec.flags.includes(name)) throw toolArgumentError(tool,
       `不认识参数 ${String(name).slice(0, 60)}${listed.length ? `（本次收到 ${listed.join('、')}）` : ''}；可用的是 ${spec.flags.join('、') || '无'}`, spec);
@@ -436,14 +447,14 @@ manifest示例：{schemaVersion:1,id:'plugin-story-json',version:'1.0.0',engine:
 JavaScript调用write_adapter、Python调用write_python_adapter提交代码，再validate_adapter。验证分别检查稳定定位、原样回写、改文小样及独立显示用途；显示用途待核实或不成立时，读取逐项原因，追踪真实加载与显示消费者后修正配方，不用自述理由替代证据。通过后submit_recipe，由程序核对验证证据并保存配方。同一文件可以分批提交独立适配器，主机累计已经通过的稳定定位；submit_recipe返回taskComplete:false时，按remainingCoverage中剩余候选继续下一批，保留此前批次的代码与配方；taskComplete:true表示本轮覆盖闸门完成。可信原生工具返回nativeResultId后，用native_inspect分页检查、native_accept验收并接回原生工作台。结构、原样回写、改文样例、显示用途、实际运行结果分别记录。最终说明覆盖资源、仍需处理项目和实际运行状态。
 工具输出的 evidenceId 指向主机保存的完整结果。用 read_evidence 的空 pointer 查看字段，再按字段 pointer、offset 及返回游标读取长文字、数组、差异和日志。分页以最终返回的 nextOffset/fieldCursors 为准。host.log 可保存关键解析证据。preview_adapter 执行局部只读预览；run_probe 对指定完整单元译文做独立小样；patch_adapter 用 expectedCodeHash 和唯一 before/after 局部修改代码。适配器也接受 return 对象或 const adapter=...; adapter; 的程序体。
 inspect_coverage.dynamicCandidates的display-*精确候选若经实际来源与消费者调查确认为非显示，用record_coverage_decisions提交该id/evidenceHash、non-display及依据；主机会独立复核并持久保存，作者说明本身不能关闭候选。inspect_coverage.expressionCandidates列出待追踪的显示表达式，不是可直接替换的文字。先用read_resource按其sourceIndex、byteStart/byteEnd读取源码，追踪调用者与内容来源；inspect_units显式file可只读查看关联文件的已有定位，不增加写入范围。确认所有语言文字已由已有单元覆盖时，用record_coverage_decisions提交该表达式id/evidenceHash、disposition:'bound-reference'、unitIds及依据；确认只是数值或无语言文字的状态显示时用non-linguistic，仍须独立负面用途复核。这两种决定仍保留显示位置，不是non-display，不需要再写无用适配器。正文来自其他文件不能当作无语言结案；未提取时申请关联来源并继续适配，不能用这两个决定绕过真实缺口。
-native_unpack 返回 root:work 中的 memberRoot 与完整成员证据。归档配方可用 manifest.container:{file:'data.xp3',format:'xp3'}，scope.files 列归档内部成员；主机调用成熟工具建立成员视图，按相同 JSON/UTF8 locator 校验和重封包。unknownClusters 是等待判定用途的字段簇；结合脚本读取、语言选择与加载配置，用 record_coverage_decisions 提交 id/evidenceHash、display 或 non-display 及依据。显示簇会转成精确候选，沿用 write_text_adapter 验证接入。索引与数据需要联合写入时使用 request_scope_change 申请关联文件，由协调器安排下一轮联合任务。failure.repairBundle.available 时先 read_failure 查看返修包，通过 read_evidence 补读实际译文与差异，再用 run_probe 重现和修复原失败。read_failure 的 artifactId 可列目录，配合相对 file 与 offset 可只读查看原失败工件。`;
+native_archive_index 只读分页目录；native_unpack 可用 --files 与成员路径JSON数组按需展开，返回 root:work 中的 memberRoot、已展开及未展开状态。不要把部分成员目录当完整游戏；native_repack 必须引用同一原档来保留其余成员，按实际capabilities区分读和写。归档配方可用 manifest.container:{file:'data.xp3',format:'xp3'}，scope.files 列归档内部成员；主机调用成熟工具建立成员视图，按相同 JSON/UTF8 locator 校验和重封包。unknownClusters 是等待判定用途的字段簇；结合脚本读取、语言选择与加载配置，用 record_coverage_decisions 提交 id/evidenceHash、display 或 non-display 及依据。显示簇会转成精确候选，沿用 write_text_adapter 验证接入。索引与数据需要联合写入时使用 request_scope_change 申请关联文件，由协调器安排下一轮联合任务。failure.repairBundle.available 时先 read_failure 查看返修包，通过 read_evidence 补读实际译文与差异，再用 run_probe 重现和修复原失败。read_failure 的 artifactId 可列目录，配合相对 file 与 offset 可只读查看原失败工件。`;
 }
 
 // Serialized once per run so every step of every window sends the identical system prefix, keeping
 // a stable prompt cache prefix. Scoped to the run: jobs run in parallel and each carries its own
 // accumulated lessons, so a module-level cache would leak one job's facts into another's prompt.
 
-export function adaptationTools({ project, inventory, getExistingUnits, coverage, failure, lab, gameDir, readDir = gameDir, readRoots = [], copySourceFiles, workspaceDir, state, signal, persist = async () => {}, onProgress = () => {}, onLessons = async () => {}, onAcceptedBatch, research = {}, maxAttempts = 6, secrets = [], verifyCoverage, assignment, initialExtractions = [], requestScopeChange, trustedToolNames, trustedToolCatalog, requestContext, controlLimits, runtimePolicy = 'legacy' }) {
+export function adaptationTools({ project, inventory, getExistingUnits, coverage, failure, lab, gameDir, readDir = gameDir, readRoots = [], copySourceFiles, workspaceDir, state, signal, persist = async () => {}, onProgress = () => {}, onLessons = async () => {}, onAcceptedBatch, research = {}, maxAttempts = 6, secrets = [], verifyCoverage, assignment, initialExtractions = [], requestScopeChange, trustedToolNames, trustedToolCatalog, requestContext, controlLimits, connection, getSharedEvidence = () => [], runtimePolicy = 'legacy' }) {
   if (!['legacy', 'external'].includes(runtimePolicy)) throw new Error('Unknown adaptation runtime policy');
   const legacyControl = runtimePolicy === 'legacy';
   let registeredNames = trustedToolNames === undefined && !trustedToolCatalog ? null : new Set(trustedToolNames ?? trustedToolCatalog.map(item => item.name));
@@ -470,6 +481,10 @@ export function adaptationTools({ project, inventory, getExistingUnits, coverage
   state.coverageDecisions ??= coverage?.coverageDecisions ?? [];
   state.investigationReads ??= [];
   const evidenceFingerprint = project.sourceFingerprint ?? coverage?.sourceContextHash;
+  const sharedEvidence = () => evidenceFingerprint ? getSharedEvidence().filter(item => item.referenceOnly === true
+    && item.evidenceFingerprint === evidenceFingerprint && item.namespaceId && item.workspaceDir) : [];
+  const readableNamespaces = () => ({ ...Object.fromEntries(sharedEvidence().map(item => [item.namespaceId, item])),
+    ...state.inheritedNamespaces });
   state.lessons = lessonsForSource(state.lessons, evidenceFingerprint);
   const learn = async input => {
     const facts = distillLessons({ jobId: assignment?.id, ...input }).map(lesson => ({ ...lesson,
@@ -532,8 +547,10 @@ export function adaptationTools({ project, inventory, getExistingUnits, coverage
       try {
         const receiptId = typeof reference === 'string' ? reference : reference.receiptId;
         const namespaceId = typeof reference === 'object' ? reference.namespaceId : undefined;
-        const stores = namespaceId ? state.inheritedNamespaces?.[namespaceId] ? [createEvidenceStore(state.inheritedNamespaces[namespaceId].workspaceDir)] : [evidence]
-          : [evidence, ...Object.values(state.inheritedNamespaces ?? {}).map(row => createEvidenceStore(row.workspaceDir))];
+        const namespaces = readableNamespaces();
+        if (namespaceId && !namespaces[namespaceId] && namespaceId !== (await evidence.readReceipts({ limit: 1 })).namespaceId) return;
+        const stores = namespaceId ? namespaces[namespaceId] ? [createEvidenceStore(namespaces[namespaceId].workspaceDir)] : [evidence]
+          : [evidence, ...Object.values(namespaces).map(row => createEvidenceStore(row.workspaceDir))];
         for (const source of stores) {
           let receipt; try { receipt = await source.resolveReceipt(receiptId); } catch { continue; }
           if (receipt.phase !== 'completed' || receipt.tool !== 'read_resource' || receipt.resourceRefs?.length !== 1) return;
@@ -692,9 +709,11 @@ export function adaptationTools({ project, inventory, getExistingUnits, coverage
             await event(name, { ok: false, fingerprint, repetitions, elapsedMs: Date.now() - started });
           } else await event(name, { ok: false, cached, elapsedMs: Date.now() - started });
         } else await event(name, { ok: true, cached, elapsedMs: Date.now() - started });
-        const projected = name === 'run_tool' && ['native_review', 'native_review_decide'].includes(input.tool) ? nativeReferences.view(modelOutput) : modelOutput;
+        const maxCharacters = technicalToolCharacters(connection, state.backend?.capacity);
+        const projected = name === 'inspect_context' ? contextMap(modelOutput, receipt.evidenceId, maxCharacters)
+          : name === 'run_tool' && ['native_review', 'native_review_decide'].includes(input.tool) ? nativeReferences.view(modelOutput) : modelOutput;
         const presented = projected && typeof projected === 'object' && !Array.isArray(projected) ? projected : { value: projected };
-        return boundedToolOutput({ ...receipt, receiptId: occurrence.receiptId, ...presented, ...(cached ? { cached: true } : {}), ...(directive ? { mustChangeStrategy: directive } : {}) }, { input });
+        return boundedToolOutput({ ...receipt, receiptId: occurrence.receiptId, ...presented, ...(cached ? { cached: true } : {}), ...(directive ? { mustChangeStrategy: directive } : {}) }, { input, maxCharacters });
       } catch (error) {
         if (['ENOSPC', 'EDQUOT', 'EROFS', 'LOG_WRITE_FAILED'].includes(error.code)) error.hostFailure = true;
         if (error.hostFailure) {
@@ -773,19 +792,31 @@ export function adaptationTools({ project, inventory, getExistingUnits, coverage
     return work;
   } });
   const tools = {
+    write_table_adapter: define('write_table_adapter', '调查真实消费者后选择标准CSV/TSV的完整显示单元格，主机负责表格解析、稳定定位、引号和安全回写。先用read_resource(view:parsed,capabilityId:builtin-table-cells)核对实际表头和key；selections显式填写file、keyColumn、sourceColumn、targetColumn、key及reason。不能选择键列、逻辑字段或自定义非CSV分隔协议。保存后仍须validate_adapter独立用途与结构复核，再submit_recipe。', schema({
+      selections: { type: 'array', minItems: 1, maxItems: 2000, items: { type: 'object', additionalProperties: false,
+        required: ['file', 'keyColumn', 'sourceColumn', 'targetColumn', 'key', 'reason'], properties: {
+          file: string, keyColumn: string, sourceColumn: string, targetColumn: string, key: string,
+          delimiter: { type: 'string', enum: [',', '\t'] }, reason: { type: 'string', minLength: 1, maxLength: 4000 }
+        } } }, id: string, consumerHints: consumerHintsSchema }, ['selections']), async ({ selections, id, consumerHints }) => {
+      const adapter = await createTableSelections({ selections, gameDir, engine: project.engine,
+        assignment, existingUnits: currentUnits(), id });
+      const candidate = await saveAdapter({ ...adapter, consumerHints });
+      return { ...candidate, selectedTableFields: selections.length, nextAction: 'validate_adapter' };
+    }),
     read_evidence: define('read_evidence', '读取已保存证据，或action:search按tool/file/runId/itemId及原文字面量找回调用回执。read默认按evidenceId、pointer、游标读取；检索不增加新材料进展。', schema({
       action: { type: 'string', enum: ['read', 'search'] }, namespaceId: string, evidenceId: string, occurrenceId: string, receiptId: string, pointer: string, tool: string, file: string, runId: string, itemId: string, query: string,
       offset: { type: 'integer', minimum: 0 }, limit: { type: 'integer', minimum: 1, maximum: 12 }, length: { type: 'integer', minimum: 1, maximum: 2000 } }, []),
     async input => {
-      const relatedNamespaces = Object.entries(state.inheritedNamespaces ?? {}).map(([namespaceId, item]) => ({ namespaceId, jobId: item.jobId }));
+      const namespaces = readableNamespaces();
+      const relatedNamespaces = Object.entries(namespaces).map(([namespaceId, item]) => ({ namespaceId, jobId: item.jobId, referenceOnly: true }));
       let store = evidence;
-      if (input.namespaceId && state.inheritedNamespaces?.[input.namespaceId]) store = createEvidenceStore(state.inheritedNamespaces[input.namespaceId].workspaceDir);
+      if (input.namespaceId && namespaces[input.namespaceId]) store = createEvidenceStore(namespaces[input.namespaceId].workspaceDir);
       else if (input.namespaceId && input.namespaceId !== (await evidence.readReceipts({ limit: 1 })).namespaceId) throw new Error('证据namespace不属于当前任务或已转交来源');
       if (input.action === 'search') return { ...await store.search(input), relatedNamespaces };
       try { return await store.read(input); }
       catch (error) {
         if (input.namespaceId || error.code !== 'ENOENT') throw error;
-        for (const item of Object.values(state.inheritedNamespaces ?? {})) {
+        for (const item of Object.values(namespaces)) {
           try { return await createEvidenceStore(item.workspaceDir).read(input); } catch (failure) { if (failure.code !== 'ENOENT') throw failure; }
         }
         throw error;
@@ -824,6 +855,9 @@ export function adaptationTools({ project, inventory, getExistingUnits, coverage
         sourceFiles: path.resolve(readDir) === path.resolve(gameDir) ? 'complete-input' : 'on-demand-copy',
         environment: { PINHAO_SOURCE_DIR: path.resolve(gameDir), PINHAO_WORK_DIR: path.resolve(workspaceDir) } },
       inputView: await sourceView(),
+      sharedWork: sharedEvidence().map(({ workspaceDir: _privatePath, ...item }) => ({ ...item,
+        readCall: { tool: 'read_evidence', input: { action: 'search', namespaceId: item.namespaceId } },
+        nextAction: '复用已保存来源与消费者回执；accepted只作导航，不授予当前任务写入权。新位置仍须验证及接受。' })),
       operationGuide: engineOperationsReference(engineOperations(project.engine, await getCatalog()), guideSection),
       verificationCapabilities: await lab.describeVerificationCapabilities?.(),
       ...(typedNames.has('native_review') && scopedNativeIssues().length ? { entrypoints: { nativeReview: { tool: 'native_review', input: assignment?.files?.length === 1 ? { file: assignment.files[0] } : {}, nextAction: '使用返回groups[].groupRef；首次读取不填groupRef，快照由主机绑定。' } } } : {}),
@@ -1349,7 +1383,7 @@ export async function finishAdaptationBusinessResult({ state, session, result, c
     partialExtractions: result.status === 'verified' ? [] : result.partialExtractions ?? session?.partialExtractions() ?? [], state };
 }
 
-export async function runAdaptation({ connection, project, inventory = {}, getExistingUnits, coverage, failure, lab, gameDir = project.sourceDir, readDir = gameDir, readRoots = [], copySourceFiles, workspaceDir, signal, onProgress = () => {}, onLessons = async () => {}, onAcceptedBatch, getLessons = () => [], statePath, resume = true, retry = false, generate, research, maxAttempts = 6, maxSteps = 100, verifyCoverage, assignment, requestScopeChange, requestTimeoutMs = 300000, maxNoProgressSteps = 12, maxOutputContinuations = 2, planKey = ADAPTATION_PROMPT_VERSION, diagnostics = false, requestContext, controlLimits, inheritStates = [] }) {
+export async function runAdaptation({ connection, project, inventory = {}, getExistingUnits, coverage, failure, lab, gameDir = project.sourceDir, readDir = gameDir, readRoots = [], copySourceFiles, workspaceDir, signal, onProgress = () => {}, onLessons = async () => {}, onAcceptedBatch, getLessons = () => [], getSharedEvidence = () => [], statePath, resume = true, retry = false, generate, research, maxAttempts = 6, maxSteps = 100, verifyCoverage, assignment, requestScopeChange, requestTimeoutMs = 300000, maxNoProgressSteps = 12, maxOutputContinuations = 2, planKey = ADAPTATION_PROMPT_VERSION, diagnostics = false, requestContext, controlLimits, inheritStates = [] }) {
   if (!lab || !gameDir || !workspaceDir) throw new Error('技术适配需要游戏副本、工作目录和适配实验室');
   assignment = validateAssignment(assignment);
   const hostLab = lab;
@@ -1463,8 +1497,8 @@ export async function runAdaptation({ connection, project, inventory = {}, getEx
     if (restored.length) state.acceptedBatches = restored.map(item => ({ recipeId: item.binding?.recipeId ?? item.recipeId, workspaceDir: item.workspaceDir, unitCount: item.units.length }));
     await persist(state);
     const trustedCatalog = typeof lab.listTools === 'function' ? await lab.listTools() : null;
-    session = adaptationTools({ project, inventory, getExistingUnits, coverage, failure, lab, gameDir, readDir, readRoots, copySourceFiles, workspaceDir, state, signal, persist, onProgress, onLessons, onAcceptedBatch, research, maxAttempts, secrets: [connection?.apiKey], verifyCoverage, assignment, initialExtractions: restored, requestScopeChange,
-      requestContext, controlLimits: { materialReviewSteps: maxNoProgressSteps, ...controlLimits },
+    session = adaptationTools({ project, inventory, getExistingUnits, coverage, failure, lab, gameDir, readDir, readRoots, copySourceFiles, workspaceDir, state, signal, persist, onProgress, onLessons, onAcceptedBatch, research, maxAttempts, connection, secrets: [connection?.apiKey], verifyCoverage, assignment, initialExtractions: restored, requestScopeChange,
+      requestContext, getSharedEvidence, controlLimits: { materialReviewSteps: maxNoProgressSteps, ...controlLimits },
       trustedToolNames: trustedCatalog?.map(tool => tool.name), trustedToolCatalog: trustedCatalog });
     const recovered = await session.control.restore();
     const capabilityRevision = (await lab.describeVerificationCapabilities?.())?.fingerprint;

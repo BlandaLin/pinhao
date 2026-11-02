@@ -14,8 +14,8 @@ const packageUrl = 'https://api.nuget.org/v3-flatcontainer/mono.cecil/0.11.6/mon
 const licenseUrl = 'https://raw.githubusercontent.com/jbevain/cecil/0.11.6/LICENSE.txt';
 const licenseHash = '13d58ecbed676511c0c4c4009bff107025e50007ff5e7901dc562700ec62509e';
 const cecilHash = 'c41bdb9ffd3c5f6e17d2382c1012d73703e035e3f1100245fdd4e08c8dc6eb5b';
-const managedFiles = ['Mono.Cecil.dll', 'Mono.Cecil-LICENSE.txt', 'Pinhao.ManagedPatch.exe', 'Pinhao.UnityDisplay.exe', 'net20/Pinhao.ManagedAssist.dll', 'net40/Pinhao.ManagedAssist.dll'];
-const managedSources = ['Patch.cs', 'UnityDisplay.cs', 'Bridge.cs'];
+const managedFiles = ['Mono.Cecil.dll', 'Mono.Cecil-LICENSE.txt', 'Pinhao.ManagedPatch.exe', 'Pinhao.UnityDisplay.exe', 'Pinhao.UnityTextAsset.exe', 'net20/Pinhao.ManagedAssist.dll', 'net40/Pinhao.ManagedAssist.dll'];
+const managedSources = ['Patch.cs', 'UnityDisplay.cs', 'UnityTextAsset.cs', 'Bridge.cs'];
 
 async function managedSourceHashes(directory) {
   return Object.fromEntries(await Promise.all(managedSources.map(async file =>
@@ -71,6 +71,7 @@ export async function prepareManagedTools(directory = root) {
   const source = path.join(directory, 'packages/runtime/managed');
   await run(compiler, ['/nologo', '/optimize+', '/target:exe', '/out:' + path.join(target, 'Pinhao.ManagedPatch.exe'), '/reference:' + path.join(target, 'Mono.Cecil.dll'), path.join(source, 'Patch.cs')], { windowsHide: true });
   await run(compiler, ['/nologo', '/optimize+', '/target:exe', '/out:' + path.join(target, 'Pinhao.UnityDisplay.exe'), '/reference:' + path.join(target, 'Mono.Cecil.dll'), '/reference:System.Web.Extensions.dll', path.join(source, 'UnityDisplay.cs')], { windowsHide: true });
+  await run(compiler, ['/nologo', '/optimize+', '/target:exe', '/out:' + path.join(target, 'Pinhao.UnityTextAsset.exe'), '/reference:' + path.join(target, 'Mono.Cecil.dll'), '/reference:System.Web.Extensions.dll', path.join(source, 'UnityTextAsset.cs')], { windowsHide: true });
   for (const framework of ['net20', 'net40']) {
     const output = path.join(target, framework);
     await mkdir(output, { recursive: true });

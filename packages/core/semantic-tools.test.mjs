@@ -28,6 +28,27 @@ test('query cursors reach sixty records exactly through final bounded pages', ()
   assert.equal(new Set(seen).size, 60);
 });
 
+test('compact terminology entries can read every normalized occurrence without weakening literal queries', () => {
+  const units = Array.from({ length: 70 }, (_, id) => row(id, { source: id % 2 ? 'ミナが来た。' : 'ﾐﾅが来た。' }));
+  units.push(row(71, { source: 'ミナコが来た。' }), row(72, { source: '{{ミナ}}' }));
+  const seen = []; let offset = 0;
+  do {
+    const result = resolveEvidenceRequests([{ query: { term: 'ミナ', offset, limit: 32 } }], units);
+    assert.equal(result.answers[0].total, 70);
+    seen.push(...result.answers[0].returnedIds); offset = result.answers[0].nextOffset;
+  } while (offset !== null);
+  assert.deepEqual(seen, units.slice(0, 70).map(unit => unit.id));
+  const literal = resolveEvidenceRequests([{ query: { text: 'ミナ' } }], units);
+  assert.equal(literal.answers[0].total, 37, 'Existing substring queries keep their exact behavior');
+  const read = resolveEvidenceRequests([{ query: { term: 'ミナ' } }], units);
+  const snapshot = createDependencySnapshot({ units: [], receipts: read.receipts });
+  assert.equal(dependenciesFresh(snapshot, { units }), true);
+  assert.equal(dependenciesFresh(snapshot, { units: [...units, row(73, { source: 'ﾐﾅも来た。' })] }), false);
+  assert.equal(dependenciesFresh(snapshot, { units: units.slice(1) }), false);
+  const changed = units.map((unit, index) => index ? unit : { ...unit, source: 'ﾐﾅが帰る。' });
+  assert.equal(dependenciesFresh(snapshot, { units: changed }), false);
+});
+
 test('overlapping queries share their visible records while preserving both query receipts', () => {
   const units = Array.from({ length: 40 }, (_, id) => row(id));
   const result = resolveEvidenceRequests([{ query: { text: 'Room', limit: 32 } }, { query: { ids: ['u0', 'u1'] } }], units);
@@ -104,7 +125,7 @@ test('complete relationship materials use separate bounded pages without repeati
   assert.equal(dependenciesFresh(snapshot, { units: changed }), false);
 });
 
-for (const query of [{ path: 'secret' }, {}, { ids: 'u1' }, { text: 3 }, { text: 'Room', offset: -1 }, { text: 'Room', limit: 100 }]) {
+for (const query of [{ path: 'secret' }, {}, { ids: 'u1' }, { text: 3 }, { term: [] }, { term: 'x'.repeat(2049) }, { text: 'Room', offset: -1 }, { text: 'Room', limit: 100 }]) {
   test(`malformed evidence queries fail inside the text capability: ${JSON.stringify(query)}`, () => {
     assert.throws(() => resolveEvidenceRequests([{ query }], [row(1)]), { code: 'INVALID_EVIDENCE_REQUEST' });
   });

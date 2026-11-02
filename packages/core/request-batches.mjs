@@ -9,7 +9,7 @@ export function requestPromptCharacters({ system, prompt }) {
 }
 
 /** Reuse for one unchanged project snapshot; create a new selector after unit writes. */
-export function createRequestReferenceSelector(allUnits, { story = buildStoryContext(allUnits) } = {}) {
+export function createRequestReferenceSelector(allUnits, { story = buildStoryContext(allUnits), referenceRowsPerTarget } = {}) {
   const byId = new Map(allUnits.map(unit => [unit.id, unit])), order = new Map(allUnits.map((unit, index) => [unit.id, index])), syncMembers = new Map();
   for (const unit of allUnits) {
     const group = unit.syncGroup ?? unit.context?.syncGroup ?? unit.context?.sync_group;
@@ -24,7 +24,6 @@ export function createRequestReferenceSelector(allUnits, { story = buildStoryCon
   // One scene must not donate its whole width to every request, though: a 100-line scene would push
   // every batch over budget and leave no room for the units being translated. The per-scene cap is
   // derived from the batch shape (two reference rows per requested row) rather than hardcoded.
-  const scopeUnits = Math.max(2, Math.floor(REQUEST_BATCH_LIMITS.maxUnits / 2));
   const branchOf = unit => JSON.stringify(unit.context?.branch_path ?? unit.context?.branchPath ?? unit.context?.branch ?? null);
   const select = groups => {
     const units = groups.flat();
@@ -39,6 +38,8 @@ export function createRequestReferenceSelector(allUnits, { story = buildStoryCon
     for (const scope of scopes.values()) {
       const positions = new Map(scope.unitIds.map((id, index) => [id, index]));
       const anchors = units.filter(unit => positions.has(unit.id));
+      const scopeUnits = referenceRowsPerTarget ? Math.max(2, anchors.length * referenceRowsPerTarget)
+        : Math.max(2, Math.floor(REQUEST_BATCH_LIMITS.maxUnits / 2));
       const distance = unit => Math.min(...anchors.filter(anchor => branchOf(anchor) === branchOf(unit))
         .map(anchor => Math.abs(positions.get(anchor.id) - positions.get(unit.id))));
       const nearby = scope.unitIds.map(id => byId.get(id)).filter(Boolean)
@@ -78,6 +79,7 @@ export function packRequestBatches(groups, {
   referenceSelector,
   story,
   connection,
+  capacityPlanner,
   limits = connection ? textRequestLimits(connection) : undefined,
   maxCharacters = limits?.maxCharacters ?? REQUEST_BATCH_LIMITS.maxCharacters,
   maxUnits = limits?.maxUnits ?? REQUEST_BATCH_LIMITS.maxUnits,
@@ -93,15 +95,16 @@ export function packRequestBatches(groups, {
     const options = (typeof promptOptions === 'function' ? promptOptions(units) : promptOptions) ?? {};
     const prompt = taskPrompt(role, units, targetLanguage, selectReferences([units]), glossaryForUnits(units),
       { ...options, story: options.story ?? storyMaterialEntrypoints(story, units), maxCharacters });
-    return requestPromptCharacters(prompt) > maxCharacters || limits && textRequestEstimate(prompt, units, limits).overLimit;
+    return limits ? textRequestEstimate(prompt, units, limits,
+      { role, connection, targetLanguage, capacityPlanner }).overLimit : requestPromptCharacters(prompt) > maxCharacters;
   };
   const checkSingle = units => {
     if (!limits) return;
     const options = (typeof promptOptions === 'function' ? promptOptions(units) : promptOptions) ?? {};
     const prompt = taskPrompt(role, units, targetLanguage, selectReferences([units]), glossaryForUnits(units),
       { ...options, story: options.story ?? storyMaterialEntrypoints(story, units), maxCharacters });
-    const estimate = textRequestEstimate(prompt, units, limits);
-    if (estimate.overLimit || requestPromptCharacters(prompt) > maxCharacters) throw textGroupCapacityError(units, estimate, limits);
+    const estimate = textRequestEstimate(prompt, units, limits, { role, connection, targetLanguage, capacityPlanner, fullRevision: true });
+    if (estimate.overLimit) throw textGroupCapacityError(units, estimate, limits);
   };
   const batches = [];
   let batch = [];
@@ -109,18 +112,18 @@ export function packRequestBatches(groups, {
     if (!group.length) continue;
     const candidate = [...batch, group];
     if (!batch.length) {
+      checkSingle(group);
       batch = candidate;
       // A logical group is never split. A group that overflows on its own owns one request instead of
       // swallowing the budget of every following group.
       if (overBudget(candidate.flat())) {
-        checkSingle(group);
         batches.push(batch.flat());
         if (batches.length >= maxBatches) return batches;
         batch = [];
       }
       continue;
     }
-    if (!overBudget([...batch, group].flat())) { batch = candidate; continue; }
+    if (!overBudget(candidate.flat())) { checkSingle(group); batch = candidate; continue; }
     batches.push(batch.flat());
     if (batches.length >= maxBatches) return batches;
     batch = [group];

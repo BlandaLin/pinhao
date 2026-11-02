@@ -1,10 +1,8 @@
-import { adaptationLocationKey } from '../../core/adaptation-results.mjs';
-const fileOf = unit => String(unit.locator?.file ?? unit.context?.adaptationLocator?.file ?? unit.file ?? unit.context?.file ?? '').replace(/^res:\/\//, '').replaceAll('\\', '/').replace(/^\.\//, '');
+import { adaptationUnitLocationKey } from '../../core/adaptation-results.mjs';
 const sourceOf = unit => unit.rawSource ?? unit.source;
 
 function position(unit) {
-  const locator = unit.locator ?? unit.context?.adaptationLocator;
-  const key = adaptationLocationKey(locator, fileOf(unit));
+  const key = adaptationUnitLocationKey(unit);
   if (!key) throw new Error('已验证文字需要精确的回写定位');
   return key;
 }

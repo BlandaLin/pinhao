@@ -11,6 +11,27 @@ export function resolveEvidenceRequests(requests, units, { maxQueries = 2, maxRe
   let characters = 0;
   for (const request of requests) {
     const query = request?.query;
+    if (query?.evidence) {
+      const { unitId, section } = query.evidence;
+      const unit = units.find(item => item.id === unitId);
+      const offset = query.offset ?? 0, limit = query.limit ?? 16;
+      if (!unit || !['evidence', 'reading', 'references'].includes(section)
+          || !Number.isSafeInteger(offset) || offset < 0 || !Number.isSafeInteger(limit) || limit < 1 || limit > 32) fail('工程证据需要有效文字、资料区和分页位置。');
+      const value = unit.context?.[section], items = value == null ? [] : Array.isArray(value) ? value : [value];
+      const records = [];
+      for (const item of items.slice(offset, offset + limit)) {
+        const length = JSON.stringify(item).length;
+        if (characters + length > maxCharacters && records.length) break;
+        records.push(item); characters += length;
+      }
+      // Exact evidence stays in the reply, not in the mandatory language context of every unit.
+      receipts.push(createReadReceipt(unit, { projection: null }));
+      const nextOffset = offset + records.length < items.length ? offset + records.length : null;
+      const receipt = { scopeKind: 'evidence', scopeId: `${unit.id}:${section}`, offset, nextOffset, unitIds: [unit.id], hash: sha256(records) };
+      storyReceipts.push(receipt);
+      answers.push({ query, total: items.length, returnedIds: [unit.id], rawEvidence: records, nextOffset });
+      continue;
+    }
     if (query?.story) {
       if (!story || !['scene', 'character'].includes(query.story.kind) || typeof query.story.id !== 'string') fail('场景或人物材料需要有效的阅读入口');
       if (query.story.mode !== undefined && query.story.mode !== 'relationships') fail('关联材料使用 relationships 阅读模式');
@@ -61,13 +82,13 @@ export function resolveEvidenceRequests(requests, units, { maxQueries = 2, maxRe
       answers.push({ query, total: page.total, returnedIds: page.records.map(unit => unit.id), nextOffset: page.hasMore ? page.nextOffset : null, ...relationSummary });
       continue;
     }
-    if (!query || typeof query !== 'object' || Array.isArray(query) || Object.keys(query).some(key => !['text', 'ids', 'kinds', 'file', 'offset', 'limit'].includes(key))) fail('证据查询支持原文、文字 ID、类型和资源名。');
-    for (const key of ['text', 'file']) if (query[key] !== undefined && (typeof query[key] !== 'string' || query[key].length > 2048)) fail('查询原文和资源名需要简短文字。');
+    if (!query || typeof query !== 'object' || Array.isArray(query) || Object.keys(query).some(key => !['text', 'term', 'ids', 'kinds', 'file', 'offset', 'limit'].includes(key))) fail('证据查询支持原文、术语、文字 ID、类型和资源名。');
+    for (const key of ['text', 'term', 'file']) if (query[key] !== undefined && (typeof query[key] !== 'string' || query[key].length > 2048)) fail('查询原文、术语和资源名需要简短文字。');
     for (const key of ['ids', 'kinds']) if (query[key] !== undefined && (!Array.isArray(query[key]) || query[key].length > 32 || query[key].some(value => typeof value !== 'string'))) fail('查询 ID 和类型需要文字列表。');
-    if (!query.text && !query.file && !query.ids?.length && !query.kinds?.length) fail('请提供需要查询的原文、ID、类型或资源名。');
+    if (!query.text && !query.term && !query.file && !query.ids?.length && !query.kinds?.length) fail('请提供需要查询的原文、术语、ID、类型或资源名。');
     const offset = query.offset ?? 0, limit = query.limit ?? 16;
     if (!Number.isSafeInteger(offset) || offset < 0 || !Number.isSafeInteger(limit) || limit < 1 || limit > 32) fail('证据分页使用非负位置，每页一到三十二项。');
-    const spec = Object.fromEntries(['text', 'ids', 'kinds', 'file'].filter(key => query[key] !== undefined).map(key => [key, query[key]]));
+    const spec = Object.fromEntries(['text', 'term', 'ids', 'kinds', 'file'].filter(key => query[key] !== undefined).map(key => [key, query[key]]));
     const receipt = createQueryReceipt(units, spec), found = new Set(receipt.results.map(result => result.id));
     const matches = units.filter(unit => found.has(unit.id)), page = [];
     for (const unit of matches.slice(offset, offset + limit)) {
