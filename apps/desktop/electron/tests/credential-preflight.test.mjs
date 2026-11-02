@@ -4,6 +4,8 @@ import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { createService, defaultSettings } from '../../../../packages/core/service.mjs';
 import { createStore } from '../../../../packages/core/workspace-store.mjs';
+import { decodeTextResponse } from '../../../../packages/core/text-wire.mjs';
+import { parseTextBlocks } from '../../../../packages/core/text-blocks.mjs';
 
 const testRoot = path.resolve('local', 'credential-preflight-tests');
 await mkdir(testRoot, { recursive: true });
@@ -44,7 +46,13 @@ async function fixture(t) {
       if (command === 'roundtrip') return { ok: true };
       throw new Error(`Unexpected worker command: ${command}`);
     },
-    provider: async input => { requests.push(input); return { records: [] }; },
+    provider: async input => {
+      requests.push(input);
+      assert.ok(input.wire, 'Text connection recovery must exercise the current text protocol');
+      const ref = input.wire.state.entries.find(([, id]) => id === input.wire.targetIds[0])[0];
+      const raw = input.wire.review ? '[完成]\n' : `[${ref}]\n中性连接测试。\n[完成]\n`;
+      return decodeTextResponse(parseTextBlocks(raw, {finishReason:'stop', review:input.wire.review}), input.wire);
+    },
   });
   t.after(async () => {
     await service.close();
@@ -82,6 +90,7 @@ test('saving a replacement credential restores the connection and retains transl
   assert.equal(result.ok, true);
   assert.equal(requests.length, 1);
   assert.equal(requests[0].connection.apiKey, 'fixture-new-key');
+  assert.deepEqual(requests[0].wire.targetIds, ['connection-probe']);
   const after = storedState(dataDir);
   for (const table of ['projects', 'units', 'revisions', 'tasks']) assert.deepEqual(after[table], before[table]);
   assert.notDeepEqual(after.settings, before.settings);

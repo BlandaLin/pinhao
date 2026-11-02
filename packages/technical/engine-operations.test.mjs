@@ -6,7 +6,7 @@ test('Unity guidance distinguishes native group identities from coverage decisio
   const guide = engineOperations('Unity', ['native_extract', 'native_review', 'native_review_decide', 'native_unpack']);
   const text = renderEngineOperations(guide);
   assert.equal(guide.family, 'unity');
-  assert.equal(guide.version, 'pinhao-engine-operations-17');
+  assert.equal(guide.version, 'pinhao-engine-operations-18');
   assert.match(text, /groups\[\]\.groupRef/);
   assert.match(text, /unknownClusters/);
   assert.match(text, /evidenceId/);
@@ -29,6 +29,9 @@ test('Unity guidance distinguishes native group identities from coverage decisio
   assert.match(text, /presentation-slice.*同一字段path.*displaySites\/siteRef/);
   assert.match(text, /保留原Substring参数异常、原Length与计时逻辑/);
   assert.match(text, /拼接片段不得拆成独立对白/);
+  assert.match(text, /candidateType:textasset-language/);
+  assert.match(text, /选择本组返回的一个fields\.path/);
+  assert.match(text, /文件名含Localization本身不是任意值可翻译的证据/);
 });
 
 test('guide references omit the system document and return only an explicitly requested section', () => {

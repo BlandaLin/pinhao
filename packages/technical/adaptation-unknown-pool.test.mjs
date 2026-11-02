@@ -32,8 +32,13 @@ test('unknown-file jobs investigate cross-file readers in parallel and resume wi
   const controller = new AbortController();
   const classify = async tools => {
     const context = await tools.inspect_context.execute({});
-    assert.equal(context.coverage.summary.unreviewedClusters, 1);
-    const cluster = context.coverage.unknownClusters[0];
+    assert.match(context.evidenceId, /^evidence-[a-f0-9]{64}$/);
+    const pending = await tools.read_evidence.execute({ evidenceId: context.evidenceId, pointer: '/coverage/summary/unreviewedClusters' });
+    assert.equal(pending.value, 1);
+    const navigation = await tools.read_evidence.execute({ evidenceId: context.evidenceId, pointer: '/coverage/readMore/tool' });
+    assert.equal(navigation.content, 'inspect_coverage');
+    const cluster = (await tools[navigation.content].execute({ limit: 1 })).unknownClusters[0];
+    assert.ok(cluster, 'the context map leads to the current scoped classification page');
     await tools.read_resource.execute({ file: cluster.file });
     return tools.record_coverage_decisions.execute({ decisions: [{
       id: cluster.id, evidenceHash: cluster.evidenceHash, disposition: 'non-display',
@@ -84,7 +89,7 @@ test('unknown-file jobs investigate cross-file readers in parallel and resume wi
     verifyCoverage: async ({ coverageDecisions }) => scopeAdaptationCoverage(await scan([...saved, ...coverageDecisions]), job.files),
   };
   const resumed = await runAdaptation({ ...continuation, retry: true, generate: async ({ tools }) => classify(tools) });
-  assert.equal(resumed.status, 'verified');
+  assert.equal(resumed.status, 'verified', JSON.stringify(resumed.error));
   const decision = resumed.coverageDecisions.find(item => item.file === 'a.json');
   assert.ok(decision.reads.some(read => read.file === 'js/plugin.js' && read.kind === 'read'));
   assert.ok(decision.reads.some(read => read.file === 'js/optional' && read.kind === 'missing' && read.directory));

@@ -241,8 +241,10 @@ test('all newly submitted embedded units stay inspectable without declaring rema
       assert.ok(saved.candidateId, JSON.stringify(saved));
       const validation = await tools.validate_adapter.execute({ candidateId: saved.candidateId });
       assert.equal(validation.passed, true, JSON.stringify(validation));
-      assert.equal(validation.extraction.unitCount, 12);
-      assert.ok(validation.extraction.sampleUnits.length <= 8, 'bounded tool output previews at most eight units, not all twelve IDs');
+      const count = await tools.read_evidence.execute({ evidenceId: validation.evidenceId, pointer: '/extraction/unitCount' });
+      assert.equal(count.value, 12, 'a compact validation receipt retains its complete extraction evidence');
+      const sample = await tools.read_evidence.execute({ evidenceId: validation.evidenceId, pointer: '/extraction/sampleUnits', limit: 8 });
+      assert.ok(sample.items.length > 0 && sample.items.length <= 8, 'bounded tool output previews at most eight units, not all twelve IDs');
       const submitted = await tools.submit_recipe.execute({ candidateId: saved.candidateId, validationId: validation.validationId, metadata: {} });
       assert.equal(submitted.accepted, true, JSON.stringify(submitted)); assert.equal(submitted.taskComplete, false);
       const first = await tools.inspect_units.execute({ file, limit: 8 });

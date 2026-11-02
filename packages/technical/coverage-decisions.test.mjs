@@ -559,7 +559,8 @@ async function fixture(t) {
       await tools.list_files.execute({ relativePath: 'js/optional' });
       await tools.read_resource.execute({ file: 'js/rpg_core.js' });
       await options.read?.(tools);
-      const current = await tools.inspect_context.execute({}), cluster = current.coverage.unknownClusters[0];
+      const cluster = (await tools.inspect_coverage.execute({ limit: 1 })).unknownClusters[0];
+      assert.ok(cluster, 'classification reads a coverage page rather than assuming a context preview');
       await tools.read_resource.execute({ file: cluster.file });
       await tools.record_coverage_decisions.execute({ decisions: [{ id: cluster.id, evidenceHash: cluster.evidenceHash,
         disposition: 'non-display', reason: 'Inspected runtime and plugin directory keep this field as editor metadata.' }] });
@@ -654,7 +655,8 @@ test('cancelled classification keeps source reads and negative directory evidenc
   } } });
   assert.equal(paused.status, 'cancelled');
   const resumed = await f.classify('cancel-resume', { run: { retry: true, generate: async ({ tools }) => {
-    const context = await tools.inspect_context.execute({}), cluster = context.coverage.unknownClusters[0];
+    const cluster = (await tools.inspect_coverage.execute({ limit: 1 })).unknownClusters[0];
+    assert.ok(cluster, 'resumed classification uses the current coverage page');
     await tools.record_coverage_decisions.execute({ decisions: [{ id: cluster.id, evidenceHash: cluster.evidenceHash,
       disposition: 'non-display', reason: 'Resume uses the already inspected runtime and absent directory.' }] });
   } } });
@@ -701,7 +703,8 @@ test('multi-source classification replays the exact union and selected-origin re
       const original = await tools.read_resource.execute({ file: 'shared.blob', sourceIndex: 1 });
       assert.equal(original.content, 'original value');
       await tools.read_resource.execute({ file: 'shared.blob', sourceIndex: 0 });
-      const cluster = (await tools.inspect_context.execute({})).coverage.unknownClusters[0];
+      const cluster = (await tools.inspect_coverage.execute({ limit: 1 })).unknownClusters[0];
+      assert.ok(cluster, 'the exact source-index classification remains available through paging');
       await tools.read_resource.execute({ file: cluster.file, sourceIndex: 1 });
       const submitted = await tools.record_coverage_decisions.execute({ decisions: [{ id: cluster.id, evidenceHash: cluster.evidenceHash,
         disposition: 'non-display', reason: 'Both source views and exact runtime material were inspected.' }] });

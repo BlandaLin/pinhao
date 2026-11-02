@@ -91,9 +91,25 @@ test('RenPy interpolation and tag expressions remain intact', () => {
   assert.throws(() => verifyTextStructure(fixture('main.rpy', 'guide "Hello \\u005bname\\u005d"\n', 'Hello \\u005bname\\u005d', '你好 \\u005bdanger()\\u005d')), /可信格式校验器/);
 });
 
-test('plain TXT and CSV spans preserve every byte outside explicit text targets', () => {
-  for (const file of ['dialogue.txt', 'dialogue.csv']) {
-    assert.deepEqual(verifyTextStructure(fixture(file, 'id,Safe text\n', 'Safe text', '中文')), {valid:true, format:'plain-span'});
+test('plain TXT spans preserve every byte outside explicit text targets', () => {
+  const input = fixture('dialogue.txt', 'id,Safe text\n', 'Safe text', '中文');
+  assert.deepEqual(verifyTextStructure(input), {valid:true, format:'plain-span'});
+  assert.throws(() => verifyTextStructure({...input, after:Buffer.from('changed,中文\n')}), /代码结构|字符串边界/);
+});
+
+test('CSV and TSV require explicit table cells and preserve columns and unselected bytes', () => {
+  const translation = '中文,\t"引号"\n下一行';
+  for (const [file, delimiter] of [['dialogue.csv', ','], ['dialogue.tsv', '\t']]) {
+    const before = `key${delimiter}text${delimiter}logic\r\nintro${delimiter}Safe text${delimiter}keep\r\n`;
+    const flat = fixture(file, before, 'Safe text', '中文');
+    assert.throws(() => verifyTextStructure(flat), {code:'FORMAT_TABLE_SCHEMA_REQUIRED'});
+    const input = fixture(file, before, 'Safe text', '"中文,\t""引号""\n下一行"');
+    input.units[0].locator = {...input.units[0].locator, format:'table-cell', encoding:'utf-8',
+      table:{delimiter, keyColumn:'key', sourceColumn:'text', targetColumn:'text', key:'intro'}};
+    input.translations['text:1'] = translation;
+    assert.deepEqual(verifyTextStructure(input), {valid:true, format:'table-cells'});
+    assert.throws(() => verifyTextStructure({...input, after:Buffer.from(input.after.toString().replace('keep', 'changed'))}), /non-target/);
+    assert.throws(() => verifyTextStructure({...input, after:Buffer.from(before.replace('Safe text', translation))}), {code:'FORMAT_TABLE_INVALID'});
   }
 });
 
