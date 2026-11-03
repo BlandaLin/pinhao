@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import http from 'node:http';
-import { taskPrompt, rebindTextPrompt, sdkProvider, parseModelResponse } from './provider.mjs';
+import { taskPrompt, rebindTextPrompt, sdkProvider, parseModelResponse, receiveTextResponse } from './provider.mjs';
 import { createTextWire, decodeTextResponse, textWireRecords, textWireScanner, TEXT_WIRE_VERSION } from './text-wire.mjs';
 import { packRequestBatches, requestPromptCharacters } from './request-batches.mjs';
 import { validateTranslation } from '../exchange/index.mjs';
@@ -198,9 +198,11 @@ test('review prompt names exact paid targets and reports reference or material i
     story: { scopes: [{ id: 'material-scene-only', kind: 'scene' }] } });
   const a = refFor(wire, units[0].id), b = refFor(wire, units[1].id), reference = refFor(wire, refs[0].id);
   const scene = refFor(wire, 'material-scene-only');
-  assert.ok(prompt.includes(`本次目标标记：${JSON.stringify([a, b])}`));
+  assert.deepEqual([...prompt.split('【待处理文字】\n')[1].matchAll(/^\[(u[1-9]\d*)\]$/gm)].map(match => match[1]), [a, b]);
+  assert.ok(!prompt.includes('本次目标标记：'), 'Only actual material teaches executable target markers');
   assert.throws(() => decodeTextResponse({ reviewed: [a, b, reference] }, wire), error =>
-    error.code === 'INVALID_RESPONSE' && error.message.includes(reference) && error.message.includes('只读参考') && error.message.includes(JSON.stringify([a, b])));
+    error.code === 'INVALID_RESPONSE' && error.message.includes(reference) && error.message.includes('只读参考')
+      && error.message.includes('待处理文字') && !error.message.includes('reviewed、changes'));
   assert.throws(() => decodeTextResponse({ read: [{ ids: [scene] }] }, wire), error =>
     error.code === 'INVALID_RESPONSE' && error.message.includes(scene) && error.message.includes('read.story'));
 });
@@ -228,6 +230,68 @@ test('task state keeps reading notes and references stable through page changes,
   assert.equal(refFor(rebound.wire, units[1].id), refFor(first.wire, units[1].id));
   assert.ok(rebound.prompt.includes(notes));
   assert.throws(() => textWireRecords([[refFor(rebound.wire, units[0].id), '不能重交']], rebound.wire), { code: 'INVALID_RESPONSE' });
+});
+
+test('a serialized earlier mapping resumes only marker identity under the current delivery contract', () => {
+  const previous = { entries: [['u1', units[0].id], ['u2', refs[0].id]],
+    unitIds: [units[0].id, refs[0].id], markerDepth: 2 };
+  const prompt = rebindTextPrompt(taskPrompt('translation', units, 'zh-Hans', refs), JSON.parse(JSON.stringify(previous)));
+  assert.equal(prompt.wire.version, 'pinhao-text-blocks-3');
+  assert.equal(prompt.wire.state.markerDepth, 2);
+  assert.deepEqual(prompt.wire.state.entries.slice(0, 2), previous.entries);
+  assert.equal(refFor(prompt.wire, units[1].id), 'u3');
+  assert.match(prompt.system, /pinhao-text-blocks-3/);
+  assert.ok(!prompt.prompt.includes('本次目标标记：'));
+  assert.throws(() => receiveTextResponse('[[u2]] 只读内容\n[[完成]]', { wire: prompt.wire, finishReason: 'stop' }), { code: 'INVALID_RESPONSE' });
+});
+
+test('source, current translation and notes reserve the same inline marker grammar as the receiver', () => {
+  for (const field of ['source', 'currentTranslation', 'notes']) for (const literal of ['[u2] literal', '[完成] not a completion', '[附加信息]\tquoted text']) {
+    const wire = createTextWire({ task: 'translation', referenceOnly: [], glossary: [],
+      units: [{ id: 'literal-target', source: 'Original text', [field]: literal }] });
+    assert.equal(wire.state.markerDepth, 2, `${field}: ${literal}`);
+    assert.ok(wire.prompt.includes(literal));
+  }
+  const first = createTextWire({ task: 'translation', referenceOnly: [], glossary: [], units: [{ id: 'literal-target', source: '[u2] literal' }] });
+  const nested = createTextWire({ ...first.payload, units: [{ id: 'literal-target', source: '[[u2]] nested literal' }] }, first.state);
+  assert.equal(nested.state.markerDepth, 3);
+  assert.equal(refFor(nested, 'literal-target'), refFor(first, 'literal-target'));
+  const ordinary = createTextWire({ task: 'translation', referenceOnly: [], glossary: [], units: [{ id: 'ordinary', source: '[Light Equipment] A breastplate.' }] });
+  assert.equal(ordinary.state.markerDepth, 1, 'Ordinary bracketed prose is not an inline delivery marker');
+});
+
+test('inline blocks and separator lines reach RPG validation without stripping interior prose or controls', () => {
+  const rows = [{ id: 'label', source: 'Traveler', tokens: [] },
+    { id: 'detail', source: 'First line{{CTRL0001}}Second line', tokens: ['{{CTRL0001}}'] }]
+    .map(row => ({ ...row, kind: 'dialogue', context: { protectedControlSyntax: 'rpgmaker-v1' } }));
+  const { wire } = taskPrompt('translation', rows, 'zh-Hans');
+  const result = receiveTextResponse('[u1] 旅人\n \t\n[u2]\t第一行{{CTRL0001}}第二行\n\n[完成]', { wire, finishReason: 'stop' });
+  assert.deepEqual(result.records.map(row => row.translation), ['旅人', '第一行{{CTRL0001}}第二行']);
+  result.records.forEach((record, index) => validateTranslation(rows[index], record.translation));
+  const inside = receiveTextResponse('[u1] 旅人\n\n内部段落\n[完成]', { wire, finishReason: 'stop' }).records[0];
+  assert.equal(inside.translation, '旅人\n\n内部段落');
+  assert.throws(() => validateTranslation(rows[0], inside.translation), /保护标记/);
+  for (const raw of ['[u999] 未知目标\n[完成]', '[u1] 第一份\n[u1] 第二份\n[完成]'])
+    assert.throws(() => receiveTextResponse(raw, { wire, finishReason: 'stop' }), { code: 'INVALID_RESPONSE' });
+});
+
+test('unframed review changes and wrapper tails cannot become a zero-edit full review', () => {
+  const { wire } = taskPrompt('proofreading', units, 'zh-Hans', refs, [], { reviewProtocol: true });
+  const a = refFor(wire, units[0].id), b = refFor(wire, units[1].id);
+  assert.deepEqual(receiveTextResponse('[完成]', { wire, finishReason: 'stop' }).review.reviewedIds, units.map(unit => unit.id));
+  for (const raw of ['u1\n未编号的改文\n[完成]', '```text\n[完成]\n```\n未编号的改文'])
+    assert.throws(() => receiveTextResponse(raw, { wire, finishReason: 'stop' }), { code: 'INVALID_RESPONSE' });
+  for (const raw of [`u1\n未编号的改文\n[${b}] 明确改文 {{name}}\n[完成]`,
+    `\u0060\u0060\u0060text\n[${b}]\n明确改文 {{name}}\n[完成]\n\u0060\u0060\u0060\n未编号的尾注`]) {
+    const result = receiveTextResponse(raw, { wire, finishReason: 'stop' });
+    assert.deepEqual(result.review.reviewedIds, [units[1].id]);
+    assert.equal(result.review.edits[0].translation, '明确改文 {{name}}');
+    assert.equal(result.responseRepair.code, 'INVALID_RESPONSE');
+  }
+  const repair = { code: 'INVALID_RESPONSE', message: 'The review is not complete.' };
+  assert.throws(() => decodeTextResponse({ complete: true, responseRepair: repair }, wire, { allowPartialReview: true }), { code: 'INVALID_RESPONSE' });
+  assert.deepEqual(decodeTextResponse({ complete: true, changes: [[a, '明确改文 {{name}}']], responseRepair: repair }, wire,
+    { allowPartialReview: true }).review.reviewedIds, [units[0].id]);
 });
 
 test('packing estimates the exact same compact projection and never splits full linked semantic groups', () => {

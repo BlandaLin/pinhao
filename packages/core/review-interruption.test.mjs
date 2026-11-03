@@ -168,6 +168,37 @@ test('normal service rejects all explicit edits when a completed delivery is reo
   assert.ok((await f.service.listText({ projectId: f.project.id })).units.every(unit => unit.translation.startsWith('初译')));
 });
 
+test('normal service does not turn unframed review prose plus completion into full review coverage', async t => {
+  let recover = false;
+  const f = await serviceFixture(t, { initialEnding: 'stop',
+    initialOutput: refs => `${refs[4]}\n未编号修改 {{CTRL_0}}\n` + block(refs[0], '保留明确修改 {{CTRL_0}}') + '[完成]',
+    subsequentOutput: wire => recover ? wire.payload.units.map(unit => block(refFor(wire, unit.id),
+      unit.context?.syncGroup ? '完整关联修改 {{CTRL_0}}' : '有效修订 {{CTRL_0}}')).join('') + '[完成]'
+      : '未按文字标记交付的修改\n[完成]' });
+  await f.service.saveSettings({ ...(await f.service.snapshot()).settings, pauseOnLocalFailure: true });
+  await f.service.startProject({ projectId: f.project.id, mode: 'proofreading' });
+  await until(async () => (await f.service.getProject({ projectId: f.project.id })).status === 'paused');
+  const saved = await f.service.listText({ projectId: f.project.id, filter: 'reviewed' });
+  assert.deepEqual(saved.units.map(unit => unit.id), [f.units[0].id]);
+  assert.equal(saved.sceneReview.committed, false, 'Only the explicit edit is retained as a D2 candidate');
+  assert.ok((await f.service.listText({ projectId: f.project.id })).units.every(unit => unit.translation.startsWith('初译')));
+  const store = createStore(f.dataDir);
+  try {
+    const task = store.tasks(f.project.id).find(task => task.reviewStage === 'scene');
+    assert.equal(task.status, 'paused'); assert.equal(task.requestHistory.length, 4, 'New explicit progress is followed by at most three empty repair windows');
+    assert.deepEqual(task.candidateRecords.map(record => record.id), [f.units[0].id]);
+    assert.ok(task.requestHistory.every(request => request.usage?.totalTokens === 60), 'Every complete transport retains its returned bill');
+  } finally { store.close(); }
+  recover = true; await f.reopen();
+  const beforeResume = f.materials.length;
+  await f.service.startProject({ projectId: f.project.id, mode: 'proofreading' });
+  await until(async () => (await f.service.getProject({ projectId: f.project.id })).status === 'completed');
+  assert.ok(f.materials.slice(beforeResume).every(wire => !wire.targetIds.includes(f.units[0].id)), 'Recovery does not rebuy a saved explicit edit');
+  const final = (await f.service.listText({ projectId: f.project.id })).units;
+  assert.ok(final.every(unit => unit.status === 'proofread'));
+  assert.equal(final[0].translation, '保留明确修改 {{CTRL_0}}');
+});
+
 test('normal service saves independent explicit review edits on pause and resumes only the unresolved group and invalid text', async t => {
   const f = await serviceFixture(t);
   await f.service.startProject({ projectId: f.project.id, mode: 'proofreading' });
@@ -255,7 +286,7 @@ test('length-truncated review shrinks the actual sent page, not the larger scene
   assert.ok(second > 0 && second <= Math.floor(first / 2), `Expected the next paid page <= ${Math.floor(first / 2)}, got ${second}`);
   const actualCounts = f.requests.map(request => {
     const body = request.messages.map(message => message.content).join('\n');
-    return JSON.parse(body.match(/本次目标标记：(\[[^\n]*?\])/u)[1]).length;
+    return [...body.split('【待处理文字】\n')[1].matchAll(/^\[(u[1-9]\d*)\]$/gm)].length;
   });
   assert.deepEqual(actualCounts.slice(0, 2), [first, second], 'The smaller page is present in the actual SDK HTTP messages');
   t.diagnostic(`Scene scope ${f.units.length}; actual SDK target counts ${actualCounts.join(', ')}`);

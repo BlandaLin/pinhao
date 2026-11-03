@@ -126,6 +126,26 @@ test('a complete paid review retains its returned bill when local evidence valid
   assert.equal(artifact.summary.transportRequests, 1);
 });
 
+test('an invalid review contract pauses as a format problem without abandoning review targets', async t => {
+  let calls = 0;
+  const f = await fixture(t, { phase: 'proofreading', count: 1, provider: async () => {
+    calls++;
+    return { review: { protocol: 'pinhao-review-1', reviewedIds: 'not-a-list', edits: [], issues: [] } };
+  } });
+  const before = await f.rows(); await f.start();
+  const paused = await until(async () => {
+    const detail = await f.detail();
+    assert.notEqual(detail.status, 'completed', 'A malformed contract cannot turn every review target into skipped text');
+    return detail.status === 'paused' && detail;
+  }, 'Invalid review contract did not pause');
+  t.diagnostic(JSON.stringify({ calls, stage: paused.stage, tasks: f.tasks().map(task => ({ status: task.status, code: task.lastFailure?.code })) }));
+  assert.equal(calls, 3); assert.equal(paused.stage, '模型回复待修正');
+  assert.equal(paused.skipped, 0); assert.equal(paused.builds.length, 0);
+  assert.deepEqual(await f.rows(), before);
+  const task = f.tasks().find(task => task.role === 'proofreading');
+  assert.equal(task.status, 'paused'); assert.equal(task.lastFailure.code, 'INVALID_REVIEW');
+});
+
 for (const phase of ['translation', 'proofreading']) test(`${phase}: format repair does not consume the independent bounded network recovery allowance`, async t => {
   let calls = 0;
   const f = await fixture(t, { phase, count: 1, provider: async args => {
@@ -275,6 +295,73 @@ for (const phase of ['translation', 'proofreading']) for (const statusCode of [4
 }
 
 for (const phase of ['translation', 'proofreading']) {
+  test(`${phase}: format exhaustion keeps a short project summary and complete repair evidence`, async t => {
+    let recover = false, calls = 0;
+    const inputs = [];
+    const f = await fixture(t, { phase, count: 1, provider: async args => {
+      inputs.push(args); calls++;
+      if (!recover) throw Object.assign(new Error(`本批还需补齐 ${args.wire.payload.units.length} 个 ID：${args.wire.targetIds.join('、')}。待修正条目：需要按已有标记交稿。`),
+        { code: 'INVALID_RESPONSE', category: 'response_structure' });
+      return phase === 'proofreading' ? reviewFor(args.wire.payload) : { records: recordsFor(args.wire.payload) };
+    } });
+    const before = await f.rows();
+    await f.start();
+    const paused = await until(async () => { const detail = await f.detail(); return detail.status === 'paused' && detail; }, 'Format failure did not pause');
+    assert.equal(calls, 3); assert.equal(paused.stage, '模型回复待修正');
+    assert.equal(paused.lastError, '模型回复未通过文字检查。现有成果已保留，未完成文字可继续处理。');
+    assert.ok(!paused.lastError.includes(before[0].id));
+    assert.deepEqual(await f.rows(), before, 'A malformed response does not change formal text or turn it into skipped text');
+    const task = f.tasks().find(task => task.role === phase);
+    assert.equal(task.lastFailure.category, 'response_structure');
+    assert.ok(task.error.includes(before[0].id), 'The task keeps the complete diagnostic for repair');
+    assert.equal(task.requestHistory.length, 3);
+    assert.ok(task.requestHistory.every(request => request.status === 'failed' && request.error.includes(before[0].id)));
+    const repair = inputs[1].prompt.split('【本次需要修正的问题】')[1].split('【')[0];
+    assert.ok(repair.includes('[u1]')); assert.ok(!repair.includes(before[0].id), 'Model feedback uses its own short references');
+    recover = true;
+    await f.start();
+    const done = await until(async () => { const detail = await f.detail(); return detail.status === 'completed' && detail; }, 'Manual continuation did not renew the format window');
+    assert.equal(calls, 4); assert.equal(done.skipped, 0);
+    assert.equal(phase === 'proofreading' ? done.proofread : done.translated, 16);
+  });
+
+  test(`${phase}: a host storage failure pauses immediately without marking text skipped`, async t => {
+    let calls = 0, recover = false, savedId;
+    const usage = { inputTokens: 123, outputTokens: 45, totalTokens: 168 }, resumedIds = [];
+    const f = await fixture(t, { phase, count: 1, provider: async args => {
+      calls++;
+      if (recover) {
+        resumedIds.push(...args.wire.targetIds);
+        return phase === 'proofreading' ? reviewFor(args.wire.payload) : { records: recordsFor(args.wire.payload) };
+      }
+      const record = recordsFor(args.wire.payload)[0]; savedId = record.id;
+      throw Object.assign(new Error('Neutral fixture storage write failed'), { code: 'ENOSPC', storageFailure: true, usage,
+        ...(phase === 'proofreading' ? { partialReview: { protocol: 'pinhao-review-1', reviewedIds: [savedId], edits: [record],
+          issues: [{ unitId: savedId, kind: 'correction', message: 'Neutral explicit correction', resolution: 'fixed' }] } }
+          : { completedRecords: [record] }) });
+    } });
+    const before = await f.rows();
+    await f.start();
+    const paused = await until(async () => {
+      const detail = await f.detail();
+      assert.notEqual(detail.status, 'completed', 'A storage failure cannot become a completed baseline-only build');
+      return detail.status === 'paused' && detail;
+    }, 'Host storage failure did not pause');
+    assert.equal(calls, 1); assert.equal(paused.stage, '工作文件或磁盘需要处理');
+    const task = f.tasks().find(task => task.role === phase);
+    assert.equal(task.lastFailure.code, 'ENOSPC');
+    assert.equal(paused.skipped, 0); assert.equal(paused.builds.length, 0);
+    assert.deepEqual(await f.rows(), before);
+    assert.ok(task.error.includes('Neutral fixture storage write failed'));
+    assert.deepEqual(task.candidateRecords.map(record => record.id), [savedId], 'A validated result stays provisional during a host failure');
+    assert.deepEqual(task.requestHistory[0].usage, usage);
+    recover = true;
+    await f.start();
+    const done = await until(async () => { const detail = await f.detail(); return detail.status === 'completed' && detail; }, 'A resolved storage failure did not resume');
+    assert.ok(!resumedIds.includes(savedId), 'A saved result is not purchased again after the host recovers');
+    assert.equal(done.skipped, 0); assert.equal(phase === 'proofreading' ? done.proofread : done.translated, 16);
+  });
+
   test(`${phase}: user pause interrupts a long provider cooldown without a new transport call`, async t => {
     let calls = 0;
     const f = await fixture(t, { phase, count: 1, provider: async args => {

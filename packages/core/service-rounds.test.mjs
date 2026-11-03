@@ -216,7 +216,7 @@ test('a failed later review page retains paid earlier pages and pauses without f
   const reviewPages = [], units = rows(20, 20);
   for (const unit of units) unit.source += ' A complete neutral scene context.'.repeat(20);
   let badId;
-  const f = await fixture(t, { units, concurrency: 1, provider: async ({ role, wire }) => {
+  const f = await fixture(t, { units, concurrency: 1, strict: true, provider: async ({ role, wire }) => {
     const payload = wire.payload;
     if (role === 'translation') return { records: payload.units.map(unit => ({ id: unit.id, translation: `初译 ${unit.source}`, notes: '' })) };
     assert.equal(payload.reviewScope.stage, 'scene');
@@ -254,7 +254,7 @@ test('a paused D2 target retains its previous review and does not stamp provisio
     assert.equal(role, 'proofreading');
     return review(wire.payload, [{ id: wire.payload.units[0].id, translation: '错误新增 {{invented}}' }]);
   };
-  const f = await fixture(t, { units: rows(2, 2), concurrency: 1, provider });
+  const f = await fixture(t, { units: rows(2, 2), concurrency: 1, strict: true, provider });
   const project = await f.service.createProject({ gameDir: f.gameDir });
   await f.service.close();
   const prepared = createStore(path.join(f.root, 'data'));
@@ -328,7 +328,14 @@ for (const policy of ['continue', 'strict', 'global-api-failure']) test(`transla
   const project = await f.service.createProject({ gameDir: f.gameDir }); await f.service.startProject({ projectId: project.id });
   const terminal = await until(async () => { const current = await f.service.getProject({ projectId: project.id });
     return ['paused', 'completed'].includes(current.status) && current; }, 'Failure policy did not reach a terminal state');
-  {
+  if (policy === 'continue') {
+    assert.equal(terminal.status, 'completed'); assert.ok(proofCalls > 0);
+    const final = (await f.service.listText({ projectId: project.id })).units;
+    assert.equal(final.filter(unit => unit.status === 'proofread').length, 47);
+    const skipped = final.filter(unit => unit.status === 'skipped');
+    assert.equal(skipped.length, 1); assert.equal(skipped[0].source, 'Neutral line 16.');
+    assert.equal(skipped[0].translation, skipped[0].source); assert.equal(skipped[0].review, undefined);
+  } else {
     assert.equal(terminal.status, 'paused'); assert.equal(proofCalls, 0);
     const accepted = (await f.service.listText({ projectId: project.id })).units.filter(unit => unit.status === 'translated');
     assert.ok(accepted.length >= 16, 'The completed native-sample batch stays saved');

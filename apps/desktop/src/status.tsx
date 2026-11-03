@@ -433,7 +433,7 @@ export function ProgressPanel({
       >{tr("查看场景审阅结果")}</Button>}
       {review && review.skipped > 0 && <p className="status-progress-note">{tr("本阶段跳过 ")}{review.skipped.toLocaleString()}{tr(" 条，保留当前译文")}</p>}
       {!review && progress.phases.skipped > 0 && (
-        <p className="status-progress-note">{tr("其中 ")}{progress.phases.skipped.toLocaleString()}{tr(" 条已跳过，成品中保留原文")}</p>
+        <p className="status-progress-note">{tr("其中 ")}{progress.phases.skipped.toLocaleString()}{tr(" 条待重试，保留当前文字")}</p>
       )}
       {progress.blockers.length > 0 && (
         <ul className="status-progress-blockers">

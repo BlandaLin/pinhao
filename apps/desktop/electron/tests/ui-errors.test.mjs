@@ -3,6 +3,27 @@ import assert from 'node:assert/strict';
 
 globalThis.window = { pinhao: {} };
 const { errorMessage } = await import('../../src/api.ts');
+const { translate } = await import('../../shared/ui-language.js');
+
+test('text reply failures are not described as network failures or shown as long ID inventories', () => {
+  const noMarkers = errorMessage(new Error('没有找到合法文字协议区。'));
+  assert.match(noMarkers, /没有按文字标记交稿.*原回包已保留/);
+  const id = 'u-012345678901234567890123';
+  const missing = errorMessage(`本批还需补齐 44 个 ID：${Array(44).fill(id).join('、')}。待修正条目：${id}`);
+  assert.match(missing, /44 条文字未通过检查.*现有成果已保留/);
+  assert.doesNotMatch(missing, /u-012345|API|网络|账户/);
+  assert.ok(missing.length < 100);
+  const controls = errorMessage(new Error(`请使用已有保护标记表示换行或引擎控制符：${id}`));
+  assert.match(controls, /保留原文的保护标记及顺序/);
+  const structured = errorMessage({ code: 'INVALID_RESPONSE', category: 'response_structure', message: 'reply mismatch' });
+  assert.match(structured, /文字交稿检查.*反馈请求记录/);
+  for (const message of [noMarkers, missing, controls, structured])
+    assert.doesNotMatch(message, /检查网络|更换模型|接口暂未恢复/);
+  for (const message of [noMarkers, controls, structured])
+    assert.doesNotMatch(translate(message, [], 'en'), /[\u3400-\u9fff]/u);
+  assert.match(translate('本批仍有 {0} 条文字未通过检查。现有成果已保留，请继续处理未完成文字。', ['44'], 'en'), /^44 entries/);
+  assert.match(errorMessage({ statusCode: 401, category: 'response_structure', message: '没有找到合法文字协议区。' }), /密钥验证失败/);
+});
 
 test('connection and key failures give a readable cause and a concrete recovery action', () => {
   assert.match(errorMessage(new Error('Error while decrypting ciphertext provided to safeStorage.decryptStringAsync.')), /重新填写并保存密钥/);

@@ -2,15 +2,29 @@ const fail = (message, details = {}) => { throw Object.assign(new Error(message)
 const normalFinish = reason => reason === 'stop';
 const auxiliaryKeys = new Set(['read', 'notes', 'remarks', 'decisions', 'terms', 'questions']);
 
+/** One recognizer serves response parsing and source-marker collision negotiation. */
+export function readTextBlockMarker(content, markerDepth = 1) {
+  const left = '['.repeat(markerDepth), right = ']'.repeat(markerDepth);
+  const line = content.replace(/^[ \t]+/, '');
+  if (!line.startsWith(left)) return;
+  const end = line.indexOf(right, left.length);
+  if (end < 0) return;
+  const marker = line.slice(left.length, end), tail = line.slice(end + right.length);
+  if (!marker || /[\[\]]/.test(marker)) return;
+  if (!tail || /^[ \t]+$/.test(tail)) return { marker };
+  if (/^[ \t]/.test(tail) && (/^u[1-9]\d*$/.test(marker) || marker === '完成' || marker === '附加信息')) {
+    return { marker, body: tail.slice(1) };
+  }
+}
+
 function blockReader({ markerDepth = 1 } = {}) {
   if (!Number.isSafeInteger(markerDepth) || markerDepth < 1 || markerDepth > 32) fail('文字标记的括号层数需要是 1 至 32 的整数。');
-  const left = '['.repeat(markerDepth), right = ']'.repeat(markerDepth);
   let pending = '', searched = 0, first = true, finished = false, current, body = [];
   let wrapper, wrapperClosed = false, started = false, completed = false, auxiliary = false, auxiliaryEnded = false;
   let auxiliaryDepth = 0, auxiliaryQuoted = false, auxiliaryEscaped = false;
   const seen = new Set(), auxiliaryParts = [];
   const errors = [], invalidated = new Set();
-  let protocolStarted = false, competing = false, wrapperTail = false;
+  let protocolStarted = false, competing = false, wrapperTail = false, unframedPrefix = false;
   const diagnose = (message, refs = []) => { errors.push(message); for (const ref of refs) invalidated.add(ref); };
   const appendAuxiliary = text => {
     auxiliaryParts.push(text);
@@ -30,10 +44,11 @@ function blockReader({ markerDepth = 1 } = {}) {
     error.completedRows = rows.filter(row => !error.invalidatedRefs?.includes(row[0]));
     throw error;
   };
-  const close = (rows, boundary = true) => {
+  const close = (rows, explicitBoundary = true) => {
     if (current === undefined) return;
     let text = body.join('');
-    if (boundary) text = text.replace(/\r?\n$/, '');
+    // Empty separator lines belong to an explicit frame, not the preceding translation.
+    text = text.replace(explicitBoundary ? /\r?\n(?:[ \t]*\r?\n)*$/ : /\r?\n$/, '');
     rows.push([current, text]); current = undefined; body = [];
   };
   const line = (content, ending, rows) => {
@@ -50,12 +65,9 @@ function blockReader({ markerDepth = 1 } = {}) {
     }
     if (!protocolStarted && !wrapper && /^(```|~~~)(?:text|plaintext)?$/i.test(trimmed)) { wrapper = trimmed.slice(0, 3); return; }
     if (wrapper && trimmed === wrapper) { wrapperClosed = true; return; }
-    let marker;
-    if (!(auxiliary && !auxiliaryEnded && (auxiliaryDepth || auxiliaryQuoted))
-        && trimmed.startsWith(left) && trimmed.endsWith(right)) {
-      const inner = trimmed.slice(left.length, -right.length);
-      if (inner && !/[\[\]]/.test(inner)) marker = inner;
-    }
+    const header = auxiliary && !auxiliaryEnded && (auxiliaryDepth || auxiliaryQuoted) ? undefined
+      : readTextBlockMarker(content, markerDepth);
+    const marker = header?.marker;
     if (marker !== undefined) {
       if (/^u[1-9]\d*$/.test(marker)) {
         protocolStarted = true;
@@ -66,10 +78,18 @@ function blockReader({ markerDepth = 1 } = {}) {
         if (seen.has(marker)) {
           close(rows);
           diagnose('同一文字标记不能重复返回；对应条目需要重新确认。', [marker]);
-          current = marker; return;
+          current = marker;
+          if (header.body !== undefined) body.push(header.body + ending);
+          return;
         }
         close(rows);
-        seen.add(marker); current = marker; return;
+        seen.add(marker); current = marker;
+        if (header.body !== undefined) body.push(header.body + ending);
+        return;
+      }
+      if (header.body !== undefined) {
+        current = undefined; body = [];
+        diagnose('完成标记和附加信息标记必须独占一行。'); return;
       }
       if (marker === '\u5b8c\u6210') {
         protocolStarted = true;
@@ -88,7 +108,10 @@ function blockReader({ markerDepth = 1 } = {}) {
     if (wrapperClosed) { if (trimmed) wrapperTail = true; return; }
     if (auxiliary && !auxiliaryEnded) appendAuxiliary(content + ending);
     else if (current !== undefined) body.push(content + ending);
-    else if (trimmed && protocolStarted && !wrapperClosed) diagnose('正文块之外不能附加说明文字；请按文字标记分块返回。');
+    else if (trimmed) {
+      if (protocolStarted) diagnose('正文块之外不能附加说明文字；请按文字标记分块返回。');
+      else unframedPrefix = true;
+    }
   };
   const push = chunk => {
     if (finished) fail('文字接收已经结束，不能继续追加。');
@@ -115,8 +138,8 @@ function blockReader({ markerDepth = 1 } = {}) {
       pending = ''; finished = true;
       if (normalFinish(finishReason)) {
         if (wrapper && !wrapperClosed) diagnose('包裹正文的代码围栏尚未闭合。');
-        // One terminal EOL is framing, including at a clean bare EOF; extra EOLs remain text.
-        close(rows);
+        // Bare EOF removes one EOL only; a normally closed wrapper is an explicit frame.
+        close(rows, wrapperClosed);
       } else { current = undefined; body = []; }
       if (!protocolStarted && (started || errors.length)) diagnose('没有找到合法文字协议区。');
       if (competing) for (const ref of seen) invalidated.add(ref);
@@ -125,7 +148,8 @@ function blockReader({ markerDepth = 1 } = {}) {
     return rows;
   };
   return { push, finish, get completed() { return completed; }, get auxiliary() { return auxiliary; },
-    get auxiliaryText() { return auxiliaryParts.join(''); }, get wrapperTail() { return wrapperTail; } };
+    get auxiliaryText() { return auxiliaryParts.join(''); }, get wrapperTail() { return wrapperTail; },
+    get unframedPrefix() { return unframedPrefix; } };
 }
 
 /** Only a following protocol marker closes a streamed block before a normal final EOF. */
@@ -154,6 +178,7 @@ export function parseTextBlocks(raw, { finishReason, review = false, markerDepth
   const warnings = [];
   const warn = message => { warnings.push(message); if (review) result.complete = false; };
   if (!normalFinish(finishReason)) warn('模型未正常结束；已保留完整条目，未接纳尚未闭合的最后一块。');
+  if (review && (reader.unframedPrefix || reader.wrapperTail)) warn('校对回复含未编号内容，不能确认整批已审阅；已保留合法改文，请仅按目标标记交付修改或单独确认完成。');
   if (reader.auxiliary) {
     let auxiliary;
     try { auxiliary = JSON.parse(reader.auxiliaryText); }

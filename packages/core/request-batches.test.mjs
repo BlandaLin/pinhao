@@ -7,7 +7,9 @@ import { textRequestEstimate, textRequestLimits } from './text-capacity.mjs';
 import {
   collectRequestReferences,
   createRequestReferenceSelector,
+  iterateRequestBatches,
   packRequestBatches,
+  preparedRequestBatch,
   requestPromptCharacters,
   REQUEST_BATCH_LIMITS,
 } from './request-batches.mjs';
@@ -335,5 +337,92 @@ test('another project capacity failure cannot make an admissible complete group 
       assert.deepEqual(packRequestBatches([group], selected), before);
       assert.deepEqual(textRequestEstimate({ system: '', prompt: '' }, group, textRequestLimits(connection), { role }), estimate);
     }
+  }
+});
+
+test('indexed references preserve the exhaustive nearest-row selection across branches and overlapping scopes', () => {
+  const all = Array.from({ length: 180 }, (_, index) => makeUnit(index, {
+    context: { branch_path: [index % 3, Math.floor(index / 30) % 2], ...(index % 17 < 2 ? { syncGroup: `linked-${Math.floor(index / 17)}` } : {}) },
+  }));
+  const sceneScopes = Array.from({ length: 6 }, (_, index) => ({ id: `scene-${index}`,
+    unitIds: all.slice(index * 20, index * 20 + 60).map(unit => unit.id),
+    targetUnitIds: all.slice(index * 20, index * 20 + 40).map(unit => unit.id) }));
+  const characterScopes = Array.from({ length: 3 }, (_, index) => ({ id: `character-${index}`,
+    unitIds: all.filter((_, position) => position % 3 === index || position % 5 === 0).map(unit => unit.id),
+    targetUnitIds: all.filter((_, position) => position % 3 === index).map(unit => unit.id) }));
+  const story = { scenes: sceneScopes.map(scope => ({ scope })), characters: characterScopes.map(scope => ({ scope })) };
+  const byId = new Map(all.map(unit => [unit.id, unit])), order = new Map(all.map((unit, index) => [unit.id, index]));
+  const branch = unit => JSON.stringify(unit.context.branch_path);
+  const exhaustive = (targets, ratio) => {
+    const requested = new Set(targets.map(unit => unit.id)), references = new Map(), selected = new Map();
+    for (const unit of targets) {
+      const scene = sceneScopes.findLast(scope => scope.targetUnitIds.includes(unit.id));
+      if (scene) selected.set(scene.id, scene);
+      for (const scope of characterScopes) if (scope.targetUnitIds.includes(unit.id)) selected.set(scope.id, scope);
+    }
+    for (const scope of selected.values()) {
+      const positions = new Map(scope.unitIds.map((id, index) => [id, index]));
+      const anchors = targets.filter(unit => positions.has(unit.id));
+      const limit = ratio ? Math.max(2, anchors.length * ratio) : 8;
+      const nearby = scope.unitIds.map(id => byId.get(id)).filter(unit => unit && !requested.has(unit.id))
+        .map(unit => ({ unit, distance: Math.min(...anchors.filter(anchor => branch(unit) === branch(anchor))
+          .map(anchor => Math.abs(positions.get(unit.id) - positions.get(anchor.id)))) }))
+        .filter(item => Number.isFinite(item.distance))
+        .sort((left, right) => left.distance - right.distance || positions.get(left.unit.id) - positions.get(right.unit.id));
+      let count = 0;
+      for (const { unit } of nearby) {
+        if (count >= limit) break;
+        if (!references.has(unit.id)) { references.set(unit.id, unit); count++; }
+      }
+    }
+    const linked = new Set([...references.values()].map(unit => unit.context.syncGroup).filter(Boolean));
+    for (const unit of all) if (linked.has(unit.context.syncGroup) && !requested.has(unit.id)) references.set(unit.id, unit);
+    return [...references.values()].sort((left, right) => order.get(left.id) - order.get(right.id));
+  };
+  for (const ratio of [undefined, 2]) {
+    const indexed = createRequestReferenceSelector(all, { story, referenceRowsPerTarget: ratio });
+    for (let offset = 0; offset < 24; offset++) {
+      const targets = all.filter((_, index) => (index * 17 + offset * 13) % 43 < 4);
+      assert.deepEqual(indexed([targets]), exhaustive(targets, ratio));
+    }
+  }
+});
+
+test('batch iteration prepares one checked projection and does not plan unseen requests', () => {
+  const units = Array.from({ length: 80 }, (_, index) => makeUnit(index, { context: { speaker: 'Lin', scene: 'The same complete scene.' } }));
+  let reads = 0, preparations = 0;
+  const references = [makeUnit('reference', { source: 'A complete reference paragraph.', context: { speaker: 'Lin' } })];
+  const options = { allUnits: units, referenceSelector: () => { reads++; return references; },
+    promptOptions: () => { preparations++; return { readingNotes: 'An explicit neutral reading note.' }; } };
+  const iterator = iterateRequestBatches(units.map(unit => [unit]), options);
+  assert.equal(reads, 0);
+  const first = iterator.next().value;
+  assert.equal(first.length, 16);
+  assert.equal(reads, 1);
+  assert.equal(preparations, 1);
+  const prepared = preparedRequestBatch(first);
+  assert.equal(prepared.overLimit, false);
+  assert.deepEqual(prepared.references, references);
+  const rebuilt = taskPrompt('translation', first, 'zh-Hans', references, [], prepared.promptOptions);
+  assert.deepEqual(prepared.prompt, rebuilt);
+  iterator.return();
+  assert.equal(reads, 1, 'Closing the planning window must not construct later messages');
+  assert.equal(preparations, 1);
+});
+
+test('large capacity prepares messages per batch rather than per added target without a fixed row ceiling', () => {
+  const units = Array.from({ length: 6000 }, (_, index) => makeUnit(index, { context: {} }));
+  let reads = 0;
+  const connection = { contextWindow: 666666, maxOutputTokens: 80966 };
+  const batches = packRequestBatches(units.map(unit => [unit]), { connection, allUnits: [], maxBatches: 2,
+    referenceSelector: () => { reads++; return []; }, promptOptions: { story: {} } });
+  assert.equal(batches.length, 2);
+  assert.ok(batches.every(batch => batch.length > 1000), 'Model capacity is not replaced with an arbitrary small row limit');
+  assert.ok(reads <= 4, `Full messages should be assembled per batch, got ${reads} materializations`);
+  assert.deepEqual(batches.flat(), units.slice(0, batches.flat().length));
+  for (const batch of batches) {
+    const prepared = preparedRequestBatch(batch);
+    assert.equal(textRequestEstimate(prepared.prompt, batch, textRequestLimits(connection)).overLimit, false);
+    assert.deepEqual(prepared.prompt.wire.payload.units.map(unit => unit.id), batch.map(unit => unit.id));
   }
 });

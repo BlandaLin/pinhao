@@ -102,7 +102,7 @@ test('real SDK plaintext terminal admission across individual characters without
   const units = rows(), reference = { ...units[0], id: 'private-reference-full-hash', source: 'An earlier complete scene.' };
   const prompt = taskPrompt('translation', units, 'zh-Hans', [reference]);
   const [a, b] = units.map(unit => refFor(prompt.wire, unit.id));
-  const value = '  雪😀说："夺回 {房间}"。\\n 是两个字符。\n\n下一整句 {{CTRL_0}}  \n\n';
+  const value = '  雪😀说："夺回 {房间}"。\\n 是两个字符。\n\n下一整句 {{CTRL_0}}  ';
   let finished = false;
   const { connection, requests } = await endpoint(t, async (response, input) => {
     assert.equal(input.messages.at(-1).content, prompt.prompt);
@@ -111,7 +111,7 @@ test('real SDK plaintext terminal admission across individual characters without
     for (const privateValue of ['private/carrier.bundle', 'private-scene-full-hash', 'private-source-full-hash',
       units[0].id, units[1].id, reference.id]) assert.ok(!material.includes(privateValue), privateValue);
     start(response);
-    const first = `${block(a, value)}\n[${b}]\n`;
+    const first = `${block(a, value)}\n\n\n[${b}]\n`;
     for (let index = 0; index < first.length; index++) chunk(response, first[index]);
     await new Promise(resolve => setTimeout(resolve, 25));
     assert.equal(checkpoints.length, 0, 'No receiving prefix may be admitted');
@@ -423,6 +423,7 @@ test('saved candidates do not reset three later format failures and continue buy
       : index < 5 ? '只有解释，没有交付。' : `${block(refFor(f.materials.at(-1), f.materials.at(-1).targetIds[0]), '补缺 {{CTRL_0}}')}\n[完成]`);
     finish(response);
   } });
+  await f.service.saveSettings({ ...(await f.service.snapshot()).settings, pauseOnLocalFailure: true });
   await f.service.startProject({ projectId: f.project.id }); assert.equal((await settled(f)).status, 'paused');
   assert.equal(f.requests.length, 4, 'One progress response then exactly three no-progress responses');
   const saved = f.tasks().find(task => task.commitSummary?.committed);

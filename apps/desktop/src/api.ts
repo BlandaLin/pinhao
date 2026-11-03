@@ -77,6 +77,15 @@ export function errorMessage(error: unknown): string {
     return tr("模型响应超时。请检查网络或服务商状态后重试。");
   const message = error instanceof Error ? error.message
     : error && typeof error === "object" && "message" in error && typeof error.message === "string" ? error.message : String(error);
+  if (/^没有找到合法文字协议区/.test(message))
+    return tr("模型没有按文字标记交稿。原回包已保留，请重试未完成文字；重复失败时请反馈请求记录。");
+  const missingText = /^本批还需补齐 (\d+) 个 ID[：:]/.exec(message);
+  if (missingText)
+    return tr`本批仍有 ${missingText[1]} 条文字未通过检查。现有成果已保留，请继续处理未完成文字。`;
+  if (/^(?:请使用已有保护标记表示换行或引擎控制符|保护标记数量或顺序改变|保护标记格式错误)[：:]/.test(message))
+    return tr("译文中的换行或控制符未通过检查。请保留原文的保护标记及顺序；现有成果不变。");
+  if (category === "response_structure" || detail?.code === "INVALID_RESPONSE" || detail?.code === "INVALID_REVIEW")
+    return tr("模型回复未通过文字交稿检查。现有成果已保留，请重试未完成文字；重复失败时请反馈请求记录。");
   if (/^(?:Submitted translations failed native text validation|New engine syntax is not permitted|New RenPy tag\/interpolation delimiter|New KAG\/Tyrano tag delimiter|New Twine macro\/link delimiter)$/.test(message))
     return nativeTextRejectionMessage;
   if (/safeStorage\.decryptString|ciphertext.*safeStorage|OSCrypt/i.test(message))

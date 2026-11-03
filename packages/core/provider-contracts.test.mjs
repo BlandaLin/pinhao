@@ -71,7 +71,7 @@ test('all text phases retain the unique short-reference text or differential pro
   assert.equal(payload.responseProtocol, 'pinhao-review-1');
   assert.deepEqual(payload.reviewScope, { id: 'round:scene', stage: 'consistency', unitIds: ['u1'] });
   const material = `${result.system}\n${result.prompt}`;
-  assert.equal(payload.story.scenes[0].id, 's1'); assert.match(material, /read:\[\{story:/);
+  assert.equal(payload.story.scenes[0].id, 's1'); assert.match(material, /"read":\[\{"story":/);
   assert.ok(result.prompt.includes('Evening'));
   assert.equal(payload.readingNotes, 'u0: Earlier scene establishes a formal address.');
   assert.match(result.system, /待补证的文字保留现译/);

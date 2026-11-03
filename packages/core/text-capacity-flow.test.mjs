@@ -1,10 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import http from 'node:http';
-import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { createService, defaultSettings } from './service.mjs';
 import { sdkProvider } from './provider.mjs';
+import { textRequestEstimate, textRequestLimits } from './text-capacity.mjs';
 import { sha256 } from '../exchange/index.mjs';
 
 const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
@@ -67,7 +68,8 @@ async function fixture(t, mixed) {
     provider: async args => {
       assert.equal(args.role, 'proofreading');
       const stage = args.wire.payload.reviewScope?.stage;
-      const current = { wire: args.wire, stage, page: stage === 'scene' ? captures.filter(item => item.stage === 'scene').length + 1 : undefined,
+      const current = { wire: args.wire, projection: { system: args.system, prompt: args.prompt }, stage,
+        page: stage === 'scene' ? captures.filter(item => item.stage === 'scene').length + 1 : undefined,
         ids: args.wire.payload.units.map(unit => unit.id) };
       captures.push(current); active = current;
       const formal = (await service.listText({ projectId: currentProject.id })).units;
@@ -90,7 +92,7 @@ async function fixture(t, mixed) {
   return { service, currentProject, units, captures, normalized, bodies, originalTranslations, gameDir };
 }
 
-for (const mixed of [false, true]) test(`normal service learns only complete validated SDK usage: ${mixed ? 'invalid-partial-missing exclusions' : 'cold to warm'}`, async t => {
+for (const mixed of [false, true]) test(`normal service retains stable complete-review capacity and actual SDK usage: ${mixed ? 'invalid-partial-missing outcomes' : 'complete outcomes'}`, async t => {
   const f = await fixture(t, mixed);
   await f.service.startProject({ projectId: f.currentProject.id, mode: 'proofreading' });
   const complete = await until(async () => {
@@ -100,16 +102,28 @@ for (const mixed of [false, true]) test(`normal service learns only complete val
   });
   assert.equal(complete.reviewRound.stage, 'committed');
   const pages = f.captures.filter(item => item.stage === 'scene'), sizes = pages.map(item => item.ids.length);
-  t.diagnostic(`Free localhost SDK scene page sizes: ${sizes.join(',')}; excluded initial outcomes: ${mixed ? 'invalid,partial,missing-usage' : 'none'}`);
-  const warmPage = mixed ? 6 : 3;
-  assert.ok(pages.length > warmPage, `Need a post-learning page: ${JSON.stringify(sizes)}`);
-  assert.deepEqual(sizes.slice(0, 3), [sizes[0], sizes[0], sizes[0]]);
+  t.diagnostic(`Free localhost SDK scene page sizes: ${sizes.join(',')}; initial outcomes: ${mixed ? 'invalid,partial,missing-usage' : 'complete'}`);
+  assert.ok(pages.length >= 10, 'Review covers all fifty complete current translations rather than an assumed short diff');
+  assert.equal(new Set(sizes).size, 1, `Earlier billed output cannot grow or shrink the same complete-review workload: ${JSON.stringify(sizes)}`);
   if (mixed) {
     assert.deepEqual(pages.slice(0, 3).map(item => item.kind), ['invalid', 'partial', 'missing-usage']);
-    assert.equal(sizes[3], sizes[0], `Invalid, partial and missing-usage outcomes must not warm planning: ${JSON.stringify(sizes)}`);
+    assert.equal(sizes[3], sizes[0], `Invalid, partial and missing-usage outcomes must not change planning: ${JSON.stringify(sizes)}`);
     assert.equal(f.normalized.find(item => item.kind === 'missing-usage').outputTokens, undefined);
   }
-  assert.ok(sizes[warmPage] > sizes[0], `Three complete validated actual usages warm later pages: ${JSON.stringify(sizes)}`);
+  const limits = textRequestLimits({ contextWindow: 32768, maxOutputTokens: 1600 });
+  for (const page of pages) {
+    const targets = page.wire.payload.units.map(row => ({ ...row, translation: row.currentTranslation }));
+    const estimate = textRequestEstimate(page.projection, targets, limits, { role: 'proofreading' });
+    assert.equal(estimate.overLimit, false, 'Each sent review reserves complete revisions and current input context');
+    assert.ok(estimate.estimatedOutputTokens + estimate.reasoningReserve <= limits.maxOutputTokens);
+  }
+  const requestDirectory = path.join(f.currentProject.workspaceDir, 'requests');
+  const receipts = await Promise.all((await readdir(requestDirectory)).filter(name => /^[a-f0-9-]{36}$/.test(name))
+    .map(async name => JSON.parse(await readFile(path.join(requestDirectory, name, 'result.json'), 'utf8'))));
+  assert.equal(receipts.length, f.bodies.length, 'Every actual HTTP response retains its terminal artifact');
+  assert.deepEqual(receipts.map(receipt => receipt.summary.usage?.completionTokens ?? null).sort((a, b) => (a ?? -1) - (b ?? -1)),
+    f.normalized.map(result => result.outputTokens ?? null).sort((a, b) => (a ?? -1) - (b ?? -1)),
+    'Local validation failure must not lose actual returned usage, and missing usage must remain unknown');
   const sent = new Set(pages.flatMap(item => item.ids));
   assert.deepEqual([...sent].sort(), f.units.map(unit => unit.id).sort(), 'Short markers retain every host target identity');
   const final = (await f.service.listText({ projectId: f.currentProject.id })).units;

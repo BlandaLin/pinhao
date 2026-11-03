@@ -8,7 +8,7 @@
   " 前后）": ")",
   " 张": " images",
   " 条": " entries",
-  " 条已跳过，成品中保留原文": " entries skipped; the build keeps their original text",
+  " 条待重试，保留当前文字": " entries need retry; their current text is preserved",
   " 条，保留当前译文": " entries; keeping their current translations",
   " 等": " and more",
   " 项": " items",

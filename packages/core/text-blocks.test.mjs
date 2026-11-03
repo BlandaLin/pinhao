@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { parseTextBlocks, textBlockScanner } from './text-blocks.mjs';
+import { parseTextBlocks, readTextBlockMarker, textBlockScanner } from './text-blocks.mjs';
+import { validateTranslation } from '../exchange/index.mjs';
 
 const parse = (raw, options = {}) => parseTextBlocks(raw, { finishReason: 'stop', ...options });
 const done = '[\u5b8c\u6210]', aux = '[\u9644\u52a0\u4fe1\u606f]';
@@ -29,10 +30,88 @@ test('a closing outer fence cannot close an interrupted protocol tail', () => {
 });
 
 test('plain blocks preserve multiline text, whitespace, empty strings and engine controls', () => {
-  const body = '  \u7b2c\u4e00\u884c "quotes" \\n {{CTRL}}\u0000\t\n\nsecond line  \n';
-  assert.deepEqual(parse(`[u1]\n${body}\n[u2]\n\n${done}`), { text: [['u1', body], ['u2', '']] });
+  const body = '  \u7b2c\u4e00\u884c "quotes" \\n {{CTRL}}\u0000\t\n\nsecond line  ';
+  assert.deepEqual(parse(`[u1]\n${body}\n\n[u2]\n\n${done}`), { text: [['u1', body], ['u2', '']] });
   assert.deepEqual(parse('[u1]\ntrailing\n\n'), { text: [['u1', 'trailing\n']] });
-  assert.deepEqual(parse('[u1]\r\n  one\r\n\r\n[u3]\r\ntwo\r\n' + done), { text: [['u1', '  one\r\n'], ['u3', 'two']] });
+  assert.deepEqual(parse('[u1]\r\n  one\r\n\r\n[u3]\r\ntwo\r\n' + done), { text: [['u1', '  one'], ['u3', 'two']] });
+});
+
+test('only explicit boundaries consume empty separator lines, leaving paragraphs and spaces intact', () => {
+  for (const ending of ['\n', '\r\n']) for (const markerDepth of [1, 2]) {
+    const mark = value => '['.repeat(markerDepth) + value + ']'.repeat(markerDepth);
+    const first = '  exact {{CTRL0001}}  \t', second = `paragraph one${ending}${ending}paragraph two`;
+    const raw = `${mark('u1')}${ending}${first}${ending} \t${ending}${ending}${mark('u2')}${ending}${second}${ending}${ending}${mark('完成')}`;
+    assert.deepEqual(parse(raw, { markerDepth }), { text: [['u1', first], ['u2', second]] });
+    for (let split = 0; split <= raw.length; split++) {
+      const scan = textBlockScanner({ markerDepth });
+      assert.deepEqual([...scan(raw.slice(0, split)), ...scan(raw.slice(split)), ...scan.final({ finishReason: 'stop' })], [['u1', first], ['u2', second]], `split ${split}`);
+    }
+  }
+});
+
+test('blank block separators do not trigger RPG control rejection but actual body newlines still do', () => {
+  const result = parse('[u1]\n中性名称\n\n[u2]\n第一段。\n\n第二段。{{CTRL0001}}\n \t\n' + done);
+  const name = { id: 'neutral-name', source: 'Neutral name', tokens: [], context: { protectedControlSyntax: 'rpgmaker-v1' } };
+  assert.equal(result.text[0][1], '中性名称');
+  assert.doesNotThrow(() => validateTranslation(name, result.text[0][1], { submitted: true }));
+  assert.equal(result.text[1][1], '第一段。\n\n第二段。{{CTRL0001}}');
+  assert.throws(() => validateTranslation({ ...name, id: 'neutral-description', tokens: ['{{CTRL0001}}'] }, result.text[1][1], { submitted: true }), /保护标记表示换行/);
+});
+
+test('a normally closed outer wrapper consumes its empty separators but not an interrupted tail', () => {
+  for (const ending of ['\n', '\r\n']) {
+    const raw = ['```text', '[u1]', '  exact  ', '', ' \t', '```'].join(ending);
+    assert.deepEqual(parse(raw).text, [['u1', '  exact  ']]);
+    for (const finishReason of ['length', 'interrupted', undefined]) assert.deepEqual(parseTextBlocks(raw, { finishReason }).text, []);
+  }
+});
+
+test('one marker recognizer accepts exact-depth inline targets without reserving ordinary labelled prose', () => {
+  assert.deepEqual(readTextBlockMarker('  [u2]   exact  '), { marker: 'u2', body: '  exact  ' });
+  assert.deepEqual(readTextBlockMarker('[u2]\texact'), { marker: 'u2', body: 'exact' });
+  assert.deepEqual(readTextBlockMarker('[[u2]] exact', 2), { marker: 'u2', body: 'exact' });
+  assert.deepEqual(readTextBlockMarker('[完成] wrong inline control'), { marker: '完成', body: 'wrong inline control' });
+  assert.deepEqual(readTextBlockMarker('[unknown]'), { marker: 'unknown' });
+  for (const text of ['[Light Equipment] A neutral breastplate.', '[u2]text', '[u2]\u00a0text', 'u2 text', 'prefix [u2] text', '[[u2]] text']) {
+    assert.equal(readTextBlockMarker(text), undefined, text);
+  }
+  assert.equal(readTextBlockMarker('[u2] text', 2), undefined);
+});
+
+test('inline target headers share normal block parsing and preserve all body indentation and paragraphs', () => {
+  for (const ending of ['\n', '\r\n']) for (const markerDepth of [1, 2]) {
+    const mark = value => '['.repeat(markerDepth) + value + ']'.repeat(markerDepth);
+    const raw = `${mark('u1')}   exact  ${ending}${ending}${mark('u2')}\t[Light Equipment] A neutral breastplate.${ending}${ending}A second paragraph {{CTRL0001}}.${ending}${ending}${mark('完成')}`;
+    const expected = [['u1', '  exact  '], ['u2', `[Light Equipment] A neutral breastplate.${ending}${ending}A second paragraph {{CTRL0001}}.`]];
+    assert.deepEqual(parse(raw, { markerDepth }).text, expected);
+    for (let split = 0; split <= raw.length; split++) {
+      const scan = textBlockScanner({ markerDepth });
+      assert.deepEqual([...scan(raw.slice(0, split)), ...scan(raw.slice(split)), ...scan.final({ finishReason: 'stop' })], expected, `split ${split}`);
+    }
+  }
+  assert.deepEqual(parse('[u1] exact').text, [['u1', 'exact']]);
+  assert.deepEqual(parse('```text\n[u1] exact\n\n```').text, [['u1', 'exact']]);
+  const reviewed = parse('[u1] corrected\n' + done, { review: true });
+  assert.equal(reviewed.complete, true);
+  assert.deepEqual(reviewed.changes, [['u1', 'corrected']]);
+});
+
+test('inline target parsing never closes interrupted tails or permits inline controls and competing deliveries', () => {
+  for (const finishReason of ['length', 'interrupted', undefined]) {
+    assert.deepEqual(parseTextBlocks('[u1] closed\n\n[u2] unfinished', { finishReason }).text, [['u1', 'closed']]);
+    assert.deepEqual(parseTextBlocks('[u1] unfinished', { finishReason }).text, []);
+  }
+  for (const raw of ['[u1] exact\n[完成] extra', '[u1] exact\n[附加信息] {}']) {
+    assert.throws(() => parse(raw), error => error.code === 'INVALID_RESPONSE' && /必须独占一行/.test(error.message));
+  }
+  assert.throws(() => parse('[u1] first\n[u2] independent\n[u1] conflicting'), error => {
+    assert.deepEqual(error.invalidatedRefs, ['u1']);
+    assert.deepEqual(error.completedRows, [['u2', 'independent']]); return true;
+  });
+  assert.throws(() => parse('[u1] first\n[完成]\n[u2] competing'), error => {
+    assert.deepEqual(error.invalidatedRefs, ['u1', 'u2']);
+    assert.deepEqual(error.completedRows, []); return true;
+  });
 });
 
 test('clean EOF removes exactly one terminal framing EOL, never spaces or additional EOLs', () => {
@@ -95,6 +174,29 @@ test('review only acknowledges explicit completion and emits only changed blocks
     assert.equal(result.responseRepair.code, 'INVALID_RESPONSE');
   }
   assert.equal(parse(done, { review: true, finishReason: 'length' }).complete, false);
+});
+
+test('unframed review content cannot become a full no-change completion', () => {
+  for (const raw of ['u1\nunframed correction\n' + done, 'unmarked explanation\n' + done,
+    '```text\nu1\nunframed correction\n' + done + '\n```', '```text\n' + done + '\n```\nunframed correction']) {
+    const result = parse(raw, { review: true });
+    assert.equal(result.complete, false, raw);
+    assert.deepEqual(result.changes, []);
+    assert.equal(result.responseRepair.code, 'INVALID_RESPONSE');
+  }
+  assert.equal(parse('```text\n' + done + '\n```', { review: true }).complete, true);
+  assert.equal(parse('\n \t\n' + done, { review: true }).complete, true);
+});
+
+test('ambiguous review wrappers preserve closed valid corrections without acknowledging other targets', () => {
+  const changed = '[u2]\n  valid correction {{CTRL0001}}  \n\n' + done;
+  for (const raw of ['u1\nunframed correction\n' + changed, 'unmarked preface\n```text\n' + changed + '\n```',
+    '```text\n' + changed + '\n```\nunframed correction']) {
+    const result = parse(raw, { review: true });
+    assert.equal(result.complete, false);
+    assert.deepEqual(result.changes, [['u2', '  valid correction {{CTRL0001}}  ']]);
+    assert.equal(result.responseRepair.code, 'INVALID_RESPONSE');
+  }
 });
 
 test('auxiliary JSON stays optional and never replaces main text or completion', () => {

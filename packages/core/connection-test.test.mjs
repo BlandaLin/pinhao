@@ -118,9 +118,9 @@ test('model capacity persists through settings and reaches the selected technica
 test('text connection probes exercise one real short-tag target and explicit review coverage without changing technical JSON', async t => {
   const parent = path.resolve('local', 'connection-test-fixtures'); await mkdir(parent, { recursive: true });
   const directory = await mkdtemp(path.join(parent, 'protocol-')), requests = [];
-  let invalid;
+  let invalid, failure;
   const service = await createService({ dataDir: directory, worker: async () => ({ engines: [] }),
-    provider: async input => { requests.push(input); return invalid ?? successfulProbe(input); } });
+    provider: async input => { requests.push(input); if (failure) throw failure; return invalid ?? successfulProbe(input); } });
   t.after(async () => { await service.close(); assert.equal(path.dirname(directory), parent);
     await rm(directory, { recursive: true, force: true, maxRetries: 3 }); });
   await service.saveSettings({ ...defaultSettings(), connection: { baseUrl: 'http://127.0.0.1:1/v1', model: 'neutral-probe' } });
@@ -131,13 +131,21 @@ test('text connection probes exercise one real short-tag target and explicit rev
     assert.deepEqual(input.wire.targetIds, ['connection-probe']);
     assert.equal(input.wire.payload.units.length, 1); assert.ok(input.wire.payload.units[0].source.length < 100);
     assert.ok(input.prompt.includes('[u1]')); assert.ok(!input.prompt.includes('"records":[]'));
+    assert.ok(!input.prompt.includes('只交正文'), 'The probe and production share the same mandatory marker contract');
+    assert.ok(input.prompt.includes(input.wire.review ? '没有修改时只返回完成标记' : '不能只返回译文而省略标记'));
   }
   assert.equal(requests[2].wire.review, true); assert.ok(`${requests[2].system}\n${requests[2].prompt}`.includes('[完成]'));
   assert.equal(requests[3].wire, undefined); assert.ok(requests[3].system.includes('"records":[]'));
   invalid = { records: [{ id: 'wrong-target', translation: '连接正常' }] };
-  assert.equal((await service.testConnection({ role: 'translation' })).ok, false, 'A translated unrelated ID does not validate this wire');
+  const wrongTarget = await service.testConnection({ role: 'translation' });
+  assert.equal(wrongTarget.ok, false, 'A translated unrelated ID does not validate this wire');
+  assert.equal(wrongTarget.code, 'INVALID_RESPONSE'); assert.equal(wrongTarget.category, 'response_structure');
   invalid = { records: [{ id: 'connection-probe', translation: '' }] };
   assert.equal((await service.testConnection({ role: 'translation' })).ok, false, 'An empty probe is not a valid text reply');
   invalid = { records: [], review: { protocol: 'pinhao-review-1', reviewedIds: [], edits: [], issues: [] } };
   assert.equal((await service.testConnection({ role: 'proofreading' })).ok, false, 'Review must explicitly cover the probe target');
+  invalid = undefined;
+  failure = Object.assign(new Error('没有找到合法文字协议区。'), { code: 'INVALID_RESPONSE' });
+  const missingFrame = await service.testConnection({ role: 'translation' });
+  assert.equal(missingFrame.category, 'response_structure'); assert.equal(missingFrame.code, 'INVALID_RESPONSE');
 });

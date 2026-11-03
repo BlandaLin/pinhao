@@ -1,7 +1,8 @@
 import { createHash } from 'node:crypto';
 import { estimateTextTokens } from './text-capacity.mjs';
+import { readTextBlockMarker } from './text-blocks.mjs';
 
-export const TEXT_WIRE_VERSION = 'pinhao-text-blocks-2';
+export const TEXT_WIRE_VERSION = 'pinhao-text-blocks-3';
 export { textBlockScanner as textWireScanner } from './text-blocks.mjs';
 const unitLists = new Set(['ids', 'unitIds', 'targetIds', 'targetUnitIds', 'evidenceIds', 'returnedIds', 'toUnitIds', 'reviewedIds']);
 const unitRefs = new Set(['unitId', 'targetId', 'fromUnitId']);
@@ -123,55 +124,68 @@ export function createTextWire(payload, previous = {}) {
   const preparation = payload.preparation?.map(item => ({ ...item, scope: { ...item.scope,
     unitIds: (item.scope?.unitIds ?? []).filter(id => visible.has(id)) }, evidenceIds: item.evidenceIds?.filter(id => visible.has(id)) }));
   const scopePreview = scope => {
-    const { unitIds, targetUnitIds, ...preview } = scope;
+    const { unitIds, targetUnitIds, targetCount, ...preview } = scope;
     return { ...preview, ...(preview.total === undefined && unitIds ? { total: unitIds.length } : {}),
-      ...(preview.targetCount === undefined && targetUnitIds ? { targetCount: targetUnitIds.length } : {}) };
+      ...(targetCount !== undefined || targetUnitIds ? { scopeTargetCount: targetCount ?? targetUnitIds.length } : {}) };
   };
   const story = payload.story?.scopes ? { ...payload.story, scopes: payload.story.scopes.map(scopePreview) }
     : payload.story?.scenes ? { scopes: [...payload.story.scenes.map(scene => ({ ...scopePreview(scene.scope), kind: 'scene', title: scene.title ?? scene.name,
       query: { story: { kind: 'scene', id: scene.id } } })), ...(payload.story.characters ?? []).map(character => ({ ...scopePreview(character.scope), kind: 'character',
       name: character.name, query: { story: { kind: 'character', id: character.id } } }))], relationships: payload.story.links } : payload.story;
-  const repair = typeof payload.repairInstruction === 'string' ? entries.reduce((text, [ref, id]) => text.replaceAll(id, `[${ref}]`), payload.repairInstruction) : undefined;
-  const targetRefs = payload.units.map(unit => register(unit.id, true));
   const bodies = [...payload.units, ...payload.referenceOnly].flatMap(unit => [unit.source, unit.currentTranslation, unit.notes]).filter(value => typeof value === 'string');
   let markerDepth = previous.markerDepth ?? 1;
   for (; markerDepth <= 32; markerDepth++) {
-    const left = '['.repeat(markerDepth), right = ']'.repeat(markerDepth);
-    if (!bodies.some(text => text.split(/\r?\n/).some(line => {
-      const value = line.trim();
-      return value.startsWith(left) && value.endsWith(right) && !/[\[\]]/.test(value.slice(left.length, -right.length));
-    }))) break;
+    if (!bodies.some(text => text.split(/\r?\n/).some(line => readTextBlockMarker(line, markerDepth)))) break;
   }
   if (!Number.isSafeInteger(markerDepth) || markerDepth < 1 || markerDepth > 32) fail('正文与所有可用分段标记冲突，不能安全对齐。');
   const marker = value => '['.repeat(markerDepth) + value + ']'.repeat(markerDepth);
   const review = payload.task === 'proofreading' && Boolean(payload.responseProtocol);
+  const repair = payload.repairInstruction;
+  const repairText = repair && (() => {
+    const mapped = text => entries.reduce((value, [ref, id]) => value.replaceAll(id, marker(ref)), String(text ?? ''));
+    const details = typeof repair === 'string' ? { message: repair } : repair;
+    const rejected = new Map((details.rejectedEntries ?? []).map(entry => [entry.unitId, entry.message]));
+    const affected = new Set([...(details.missingIds ?? []), ...rejected.keys()]);
+    const rows = payload.units.filter(unit => affected.has(unit.id));
+    return [review ? '仅重新审阅下列未通过条目；其他已保存的审阅结果不重复交付。' : '仅补交下列未通过条目；其他已保存的译文不重复交付。',
+      review ? '返回修改时，目标标记是必需的交稿结构：先写该条目标记，再写完整改文；没有修改时只写完成标记。'
+        : '目标标记是必需的交稿结构，不是可省略的说明。即使上一回复已写译文，本次仍须先写该条目标记，再写完整正文。',
+      details.message ? `上次未通过原因：${mapped(details.message)}` : '',
+      ...rows.map(unit => `${marker(register(unit.id, true))}：${rejected.has(unit.id) ? mapped(rejected.get(unit.id)) : '尚未收到可接纳的本条结果。请按本条标记重新交付。'}`
+        + `${unit.tokens?.length ? ` 必须原样保留的保护标记及顺序：${unit.tokens.join(' → ')}。` : ''}`),
+      review ? `逐条审完后写 ${marker('完成')}；无须修改的条目不抄写现译，但仍须明确完成。` : `以上每条各交一次，最后独占一行写 ${marker('完成')}。`].filter(Boolean).join('\n');
+  })();
   const format = review
     ? `逐条审阅本次目标，只交需修改项：照抄该项独立标记行，下一行起写完整改文，每项一次。本批审完后独占一行写 ${marker('完成')}；没有修改也必须明确完成，未审完不得声称完成。`
     : `逐项交付本次目标：照抄该项独立标记行，下一行起写完整译文，每项一次；最后独占一行写 ${marker('完成')}。`;
-  const prompt = [`【交稿方式】\n${format}\n只交正文，不写解释前言、示例或第二份交稿。保留完整语义与原有换行；正文不用 JSON、代码围栏或包裹引号，不填空备注。只读参考和材料入口不交稿。`,
-    payload.capabilities ? `【按需能力】\n需要时在正文后另起一行写 ${marker('附加信息')}，下一行写一个 JSON 对象；不含 text、changes、reviewed 或 complete。示例中的“目标标记”须换成本次实际短标记。\n${payload.capabilities.replaceAll('$target', '目标标记')}` : '',
+  const framing = review ? '需修改项必须包含目标标记与完整改文；没有修改时只返回完成标记。'
+    : '目标标记、正文与完成标记共同组成交稿，不能只返回译文而省略标记。';
+  const prompt = [`【交稿方式】\n${format}\n${framing}不写前言、解释或第二份交稿。块间空行仅作分隔，不属于译文。保留完整语义、正文内段落及{{...}}保护标记；标记表示的换行不改写成实际换行。正文不用 JSON、代码围栏或包裹引号，不填空备注。只读参考和材料入口不交稿。`,
+    repairText ? `【本次需要修正的问题】\n${repairText}` : '',
+    payload.capabilities ? `【按需能力】\n交稿与补查二选一：需要先查资料时，只返回 ${marker('附加信息')} 和下一行的 JSON 对象，不交正文或完成标记；正常交稿如有可选说明，则在完成标记后返回同样的附加信息区。不含 text、changes、reviewed 或 complete。示例中的“目标标记”须换成本次实际短标记。\n${payload.capabilities.replaceAll('$target', '目标标记')}` : '',
     section('统一译名', payload.glossary), section('已接纳译名候选，只读（非确认规则）', terminologyCandidates?.length ? {
       guidance: '已接纳文字中的实际译法，按人物与义项参考，不替代确认规则，不因多数票强制统一。译法内 query 查一处已接纳依据；条目 query 查所有原文用法，用 read 按游标续读。',
       entries: terminologyCandidates } : undefined),
-    section('译名分歧', payload.terminologyHints), section('已确认含义', preparation), section('场景与人物', story),
+    section('译名分歧', payload.terminologyHints), section('已确认含义', preparation),
+    story ? `【场景与人物】\n以下为整个资料范围；total、scopeTargetCount 不是本次交稿数量。本次仅处理“待处理文字”，可按 query 分页查阅完整场景或人物。\n${literal(encode(story))}\n` : '',
     sharedContext.size ? `【共用语境原文，只读】\nreadOnlyText 引用以下完整原文；这些标记不是待处理文字或单元 ID。\n${[...sharedContext.values()].map(item => `[${item.ref}]\n${item.source}`).join('\n\n')}` : '',
     commonContexts.size ? commonContextHeader + [...commonContexts.values()].map(item => `[${item.ref}]\n${JSON.stringify(encode(item.context))}`).join('\n\n') : '',
     section('本轮校对范围', payload.reviewScope), section('本次补充材料', payload.evidenceResults),
-    section('已读页面收据', payload.evidenceHistory), section('累计阅读笔记', payload.readingNotes), section('本次需要修正的问题', repair),
+    section('已读页面收据', payload.evidenceHistory), section('累计阅读笔记', payload.readingNotes),
     payload.referenceOnly.length ? `【参考文字，只读】\n${payload.referenceOnly.map(block).join('\n\n')}` : '',
-    `【待处理文字】\n本次目标标记：${JSON.stringify(targetRefs)}。\n\n${payload.units.map(unit => block(unit).replace(`[${register(unit.id, true)}]\n`, `${marker(register(unit.id, true))}\n`)).join('\n\n')}`].filter(Boolean).join('\n');
+    `【待处理文字】\n${payload.units.map(unit => block(unit).replace(`[${register(unit.id, true)}]\n`, `${marker(register(unit.id, true))}\n`)).join('\n\n')}`].filter(Boolean).join('\n');
   return { version: TEXT_WIRE_VERSION, prompt, state: { entries, unitIds: [...unitIds], markerDepth }, targetIds: [...targets], review, payload };
 }
 
 export function textWireRecords(records, wire, seen = new Set()) {
   const table = new Map(wire.state.entries), targets = new Set(wire.targetIds);
-  if (!Array.isArray(records)) fail('文字结果需要使用 text 二维列表。');
+  if (!Array.isArray(records)) fail('未收到可定位的文字块；每项先写本次目标标记，再写完整正文，最后写完成标记。');
   const result = [], validRows = [], current = new Set(), revoked = new Set();
   let failure;
   for (const row of records) {
     try {
       if (!Array.isArray(row) || row.length < 2 || row.length > 3 || typeof row[0] !== 'string' || typeof row[1] !== 'string'
-          || row[2] != null && typeof row[2] !== 'string') fail('每项文字使用 [短标记,完整译文,可选备注]。');
+          || row[2] != null && typeof row[2] !== 'string') fail('文字块不完整；每项先写本次目标标记，下一行起写完整正文，不用 JSON 包装正文。');
       const id = table.get(row[0]);
       if (targets.has(id) && (seen.has(id) || current.has(id))) throw Object.assign(new Error('文字短标记重复，本条结果需要重新确认。'), { code: 'INVALID_RESPONSE', invalidatedIds: [id] });
       if (!targets.has(id)) fail('文字短标记未知或指向只读参考；只返回本批待处理文字。');
@@ -233,7 +247,7 @@ export function decodeTextResponse(value, wire, { allowPartialReview = false } =
     const canonical = table.get(ref);
     if (!canonical) fail(`短标记 ${JSON.stringify(ref)} 不存在；只使用本次材料提供的标记，不生成新编号。`);
     if (unit && !units.has(canonical)) fail(`短标记 ${JSON.stringify(ref)} 是材料入口而非文字；查场景/人物使用 read.story，不放入 ids 或文字结果。`);
-    if (target && !targets.has(canonical)) fail(`短标记 ${JSON.stringify(ref)} 是只读参考，不是本次目标；reviewed、changes、questions 只能使用 ${JSON.stringify([...targets].map(value => wire.state.entries.find(([, id]) => id === value)?.[0]))}。`);
+    if (target && !targets.has(canonical)) fail(`短标记 ${JSON.stringify(ref)} 是只读参考，不是本次目标；只交付“待处理文字”中的目标块，不返回参考文字。`);
     return canonical;
   };
   const decode = (item, key = '') => {
@@ -245,8 +259,8 @@ export function decodeTextResponse(value, wire, { allowPartialReview = false } =
     if (!item || typeof item !== 'object') return item;
     return Object.fromEntries(Object.entries(item).map(([name, entry]) => [name, decode(entry, name)]));
   };
-  if (!value || typeof value !== 'object' || Array.isArray(value)) fail('文字回包需要使用本阶段对象协议。');
-  if (Object.keys(value).some(key => !['text', 'complete', 'reviewed', 'changes', 'questions', 'read', 'notes', 'remarks', 'decisions', 'terms', 'responseRepair'].includes(key))) fail('请只使用当前文字协议字段，不返回工程记录或旧版字段。');
+  if (!value || typeof value !== 'object' || Array.isArray(value)) fail('未收到本次要求的交稿；请使用目标标记、完整正文与完成标记，不返回整包 JSON。');
+  if (Object.keys(value).some(key => !['text', 'complete', 'reviewed', 'changes', 'questions', 'read', 'notes', 'remarks', 'decisions', 'terms', 'responseRepair'].includes(key))) fail('只按目标标记交付正文；可选资料单独放在附加信息区，不返回工程记录。');
   const primary = !wire.review && Array.isArray(value.text) ? textWireRecords(value.text, wire) : undefined;
   const result = { ...(primary ? { records: primary } : {}), ...(value.responseRepair ? { responseRepair: value.responseRepair } : {}) };
   let reviewAuxiliaryFailed = false;
@@ -297,7 +311,7 @@ export function decodeTextResponse(value, wire, { allowPartialReview = false } =
     const changes = value.changes === undefined ? [] : value.changes;
     const questions = value.questions === undefined ? [] : value.questions;
     if (!Array.isArray(changes) || !Array.isArray(questions)) fail('校对修改和疑点需要可定位的列表。');
-    const explicit = value.complete === true && !reviewAuxiliaryFailed;
+    const explicit = value.complete === true && !value.responseRepair && !reviewAuxiliaryFailed;
     const reviewedRefs = explicit ? wire.state.entries.filter(([, key]) => targets.has(key)).map(([ref]) => ref)
       : Array.isArray(value.reviewed) ? value.reviewed : [...new Set([...changes, ...questions].map(row => row?.[0]))];
     if (!explicit && !Array.isArray(value.reviewed) && !reviewedRefs.length) fail('校对尚未明确完成，请在审完本批后独占一行返回完成标记。');

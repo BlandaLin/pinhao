@@ -25,16 +25,16 @@ export function textRequestLimits(connection = {}) {
   };
 }
 
-function outputShape(units, role = 'translation') {
+export function textOutputShape(units, role = 'translation', startIndex = 0) {
   const body = units.reduce((sum, unit) => sum + Math.ceil(Math.max(estimateTextTokens(unit.source),
     role === 'proofreading' ? estimateTextTokens(unit.translation ?? '') : 0) * 1.5), 0);
-  const framing = units.reduce((sum, _, index) => sum + estimateTextTokens(`[u${index + 1}]\n`) + 2, 16);
+  const framing = units.reduce((sum, _, index) => sum + estimateTextTokens(`[u${startIndex + index + 1}]\n`) + 2, 16);
   return { body, framing, full: body + framing };
 }
 
 export function textRequestEstimate(prompt, units, limits, { role = 'translation' } = {}) {
   const estimatedInputTokens = estimateTextRequestInput(prompt);
-  const shape = outputShape(units, role);
+  const shape = textOutputShape(units, role);
   // Total billed output includes reasoning and is not a per-unit text-size sample.
   const estimatedOutputTokens = shape.full;
   const reasoningReserve = Math.max(256, Math.ceil(limits.maxOutputTokens / 4));

@@ -69,7 +69,8 @@ for (const stop of ['pause', 'close']) test(`actual service fills released text 
   });
   t.after(async () => { textGate.resolve(); lateGate.resolve(); technicalGate.resolve(); await service.close(); await rm(directory, { recursive: true, force: true, maxRetries: 3, retryDelay: 30 }); });
   const settings = defaultSettings(); settings.concurrency = 5; settings.proofreading = false;
-  settings.connection.contextWindow = 32768; settings.connection.maxOutputTokens = 1248;
+  // Leave four independent text requests under the current full-output estimate, not a legacy unit cap.
+  settings.connection.contextWindow = 32768; settings.connection.maxOutputTokens = 480;
   settings.connection.model = 'neutral-admission'; await service.saveSettings(settings);
   await service.grantAdaptationBudget({ projectId: 'technical', grantId: 'explicit-admission-fixture', httpAttempts: 20, windows: 1,
     reason: 'Explicit isolated allowance for the manually seeded existing technical request' });
