@@ -299,15 +299,27 @@ test('manual shared-field editing commits all linked translations atomically and
   assert.deepEqual((await f.service.listText({ projectId: project.id })).units, after);
 });
 
-test('three partial responses keep a synchronized pair entirely on its unchanged baseline', async (t) => {
+test('three responses without a complete synchronized pair pause on its unchanged baseline without silent skips', async (t) => {
   let calls = 0;
   const f = await fixture(t, { units: synchronizedUnits(), provider: async (args, payload) => ({ records: ++calls === 1 ? [{ id: payload.units[0].id, translation: '统一标题' }] : [] }) });
-  const project = await f.service.createProject({ gameDir: f.gameDir }); await accept(f.service, project.id, 2);
-  await f.service.startProject({ projectId: project.id, mode: 'translation' }); const result = await complete(f.service, project.id);
-  assert.deepEqual(f.requests.map((request) => request.units.length), [2, 1, 1]); assert.equal(result.skipped, 2);
+  const project = await f.service.createProject({ gameDir: f.gameDir });
+  const accepted = await accept(f.service, project.id, 2);
+  await f.service.startProject({ projectId: project.id, mode: 'translation' });
+  const result = await eventually(async () => { const current = await f.service.getProject({ projectId: project.id }); return current.status === 'paused' && current; });
+  assert.equal(calls, 3); assert.equal(result.pending, 2); assert.equal(result.skipped, 0);
+  assert.deepEqual(f.requests.map((request) => request.units.length), [2, 2, 2]);
   const units = (await f.service.listText({ projectId: project.id })).units;
-  assert.deepEqual(units.slice(0, 2).map((unit) => [unit.translation, unit.revision, unit.status]), [['Neutral', 0, 'skipped'], ['Neutral', 0, 'skipped']]);
-  assert.equal(units[2].translation, '已有译文');
+  assert.deepEqual(units.slice(0, 2).map((unit) => [unit.translation, unit.revision, unit.status]), [['Neutral', 0, 'pending'], ['Neutral', 0, 'pending']]);
+  assert.deepEqual(units[2], accepted);
+  const store = createStore(f.dataDir);
+  try {
+    const task = store.tasks(project.id).find(task => task.role === 'translation');
+    assert.equal(task.status, 'paused'); assert.equal(task.requestCount, 3);
+    assert.deepEqual(task.candidateRecords ?? [], [], 'An incomplete synchronized group is not a valid candidate');
+    assert.deepEqual(task.requestHistory.map(request => request.newValidIds), [[], [], []]);
+  } finally { store.close(); }
+  await tick();
+  assert.equal(calls, 3, 'A paused format window must not dispatch another request or rebuy the accepted line');
 });
 
 test('contradictory synchronized translations retry the whole pair before committing either field', async (t) => {
