@@ -3,7 +3,7 @@ import { setTimeout as delay } from 'node:timers/promises';
 import { createRequestCooldown, providerCapacityFailure } from './request-recovery.mjs';
 import { recordUsage } from './usage.mjs';
 import { applyModelReasoning } from './model-reasoning.mjs';
-import { createTextWire, decodeTextResponse, textWireRecords, textWireScanner, TEXT_WIRE_VERSION } from './text-wire.mjs';
+import { createTextWire, decodeTextResponse, TEXT_WIRE_VERSION } from './text-wire.mjs';
 import { parseTextBlocks } from './text-blocks.mjs';
 import { textRequestLimits, assertTextRequestCapacity } from './text-capacity.mjs';
 import { languageContext, legacyPromptContext } from './text-context.mjs';
@@ -216,8 +216,8 @@ export function taskPrompt(role, units, targetLanguage, referenceUnits = [], glo
     : '你是游戏本地化译者。按完整场景阅读后翻译，准确传达人物关系、动作主客体、条件和语气。已有译文可继承；人名、称呼和术语保持一致。';
   const differential = role === 'proofreading' && options.reviewProtocol;
   const output = differential
-    ? '正文只交付实际修改，使用本次提供的短标记分段；本批逐条审完后明确返回完成标记，不必抄写全部审阅编号。疑点可放入附加信息；待补证的文字保留现译，原作歧义保持歧义。'
-    : '按本次提供的独立短标记行分段，下一行起交付完整译文；每项目标一次。正文不用 JSON，不填空备注或工程信息。';
+    ? '按材料中的交稿方式交付校对结果；待补证的文字保留现译，原作歧义保持歧义。'
+    : '按材料中的交稿方式交付完整译文。';
   const suppliedDecisions = options.preparation?.decisions ?? options.preparation ?? [];
   const visibleIds = new Set([...units, ...referenceUnits].map(unit => unit.id));
   const preparation = preparationPromptProjection(suppliedDecisions.filter(decision => decision.status !== 'revoked' && decision.scope?.unitIds?.some(id => visibleIds.has(id))));
@@ -283,7 +283,8 @@ export function retryAfterMilliseconds(value, now = Date.now()) {
   return Number.isFinite(date) ? Math.max(0, date - now) : undefined;
 }
 
-export async function sdkProvider({ connection, role = 'unknown', system, prompt, wire, responseProtocol, signal, queueSignal = signal, onRecords, onProgress, onTransport, timeout = { firstChunkMs: 120000, chunkMs: 120000, totalMs: 600000 } }) {
+export async function sdkProvider({ connection, role = 'unknown', system, prompt, wire, responseProtocol, signal, queueSignal = signal, onProgress, onTransport, maxResponseBytes = 32 * 1024 * 1024, timeout = { firstChunkMs: 120000, chunkMs: 120000, totalMs: 600000 } }) {
+  if (!Number.isSafeInteger(maxResponseBytes) || maxResponseBytes < 1) throw new Error('Invalid response byte bound');
   assertTextRequestCapacity({ connection, system, prompt, unitIds: wire?.targetIds });
   const capacity = textRequestLimits(connection);
   const [{ streamText }, { createOpenAICompatible }] = await Promise.all([import('ai'), import('@ai-sdk/openai-compatible')]);
@@ -291,8 +292,12 @@ export async function sdkProvider({ connection, role = 'unknown', system, prompt
   // cooldown wait happens first: a channel that is cooling down must not sit inside a slot.
   const key = modelConnectionKey(connection);
   const releaseSlot = await acquireModelRequestSlot({ key, signal: queueSignal, onWait: notice => onTransport?.({ type: 'cooldown', ...notice }) });
-  let requestId, transportRequests = 0, responseHeaders, statusCode, rawUsage, capacityFailure, explicitRefusal = false;
-  const emit = event => onTransport?.({ at: new Date().toISOString(), ...event });
+  let requestId, transportRequests = 0, responseHeaders, statusCode, rawUsage, capacityFailure, receiveFailure, explicitRefusal = false;
+  const receiveAbort = new AbortController();
+  const emit = async event => {
+    try { return await onTransport?.({ at: new Date().toISOString(), ...event }); }
+    catch (error) { receiveFailure ??= error; receiveAbort.abort(receiveFailure); throw error; }
+  };
   const terminal = {}, completedIds = new Set();
   const firstOutput = new AbortController();
   const firstChunkMs = typeof timeout === 'object' ? timeout.firstChunkMs : undefined;
@@ -318,17 +323,26 @@ export async function sdkProvider({ connection, role = 'unknown', system, prompt
         requestId = response.headers.get('x-request-id') ?? response.headers.get('request-id') ?? undefined;
         responseHeaders = Object.fromEntries(response.headers); statusCode = response.status;
         await emit({ type: 'headers', index, statusCode, requestId, contentType: response.headers.get('content-type') });
-        if (statusCode === 402) {
-          capacityFailure = providerCapacityFailure({ statusCode, responseHeaders, body: await response.clone().text() });
-          if (capacityFailure) sharedCooldown.defer(key, capacityFailure);
-        }
-        if (response.body && onTransport) {
+        if (response.body) {
           const decoder = new TextDecoder();
+          let receivedBytes = 0;
           const body = response.body.pipeThrough(new TransformStream({
-            async transform(chunk, controller) { await emit({ type: 'raw-chunk', index, text: decoder.decode(chunk, { stream: true }) }); controller.enqueue(chunk); },
+            async transform(chunk, controller) {
+              receivedBytes += chunk.byteLength;
+              if (receivedBytes > maxResponseBytes) {
+                receiveFailure = Object.assign(new Error('模型响应超过本机接收大小限制；不是模型容量判定。'), { code: 'RESPONSE_SIZE_LIMIT' });
+                receiveAbort.abort(receiveFailure);
+                throw receiveFailure;
+              }
+              await emit({ type: 'raw-chunk', index, text: decoder.decode(chunk, { stream: true }) }); controller.enqueue(chunk);
+            },
             async flush() { const text = decoder.decode(); if (text) await emit({ type: 'raw-chunk', index, text }); await emit({ type: 'body-end', index }); },
           }));
           response = new Response(body, { status: response.status, statusText: response.statusText, headers: response.headers });
+        }
+        if (statusCode === 402) {
+          capacityFailure = providerCapacityFailure({ statusCode, responseHeaders, body: await response.clone().text() });
+          if (capacityFailure) sharedCooldown.defer(key, capacityFailure);
         }
         return response;
       };
@@ -399,12 +413,20 @@ export async function sdkProvider({ connection, role = 'unknown', system, prompt
   });
   // The fuse is injected once in the fetch layer, which also owns dropping it when a host refuses
   // the value; declaring it here too would hide it from that layer's own bookkeeping.
-  const scan = textWireScanner({ markerDepth: wire?.state.markerDepth ?? 1 }), streamed = new Set();
   let text = '', textCharacters = 0, reasoningCharacters = 0;
+  let parseAttempted = false;
+  const parseTerminal = finishReason => {
+    parseAttempted = true;
+    const raw = wire ? text : text.trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '');
+    return receiveTextResponse(raw, { wire, finishReason, reasoningCharacters, explicitRefusal,
+      responseProtocol: wire ? TEXT_WIRE_VERSION : responseProtocol, review: wire?.review, markerDepth: wire?.state.markerDepth ?? 1 });
+  };
   try {
     queueSignal?.throwIfAborted();
     // Inside the try so a synchronous setup failure still releases the shared slot.
-    const response = streamText({ model: provider.chatModel(connection.model), system, prompt, abortSignal: signal ? AbortSignal.any([signal, firstOutput.signal]) : firstOutput.signal, timeout, maxRetries: 0, streamRetries: 0, onError: () => {} });
+    const response = streamText({ model: provider.chatModel(connection.model), system, prompt,
+      abortSignal: AbortSignal.any([firstOutput.signal, receiveAbort.signal, ...(signal ? [signal] : [])]),
+      timeout, maxRetries: 0, streamRetries: 0, onError: () => {} });
     for await (const part of response.stream) {
       if (part.type === 'finish-step' || part.type === 'finish') {
         terminal.finishReason = part.finishReason;
@@ -414,6 +436,7 @@ export async function sdkProvider({ connection, role = 'unknown', system, prompt
       }
       if (part.type === 'error') throw part.error;
       if (part.type === 'abort') {
+        if (receiveAbort.signal.aborted) throw receiveFailure;
         if (signal?.aborted) throw signal.reason;
         if (firstOutput.signal.aborted) throw firstOutput.signal.reason;
         const error = new Error(part.reason || '模型请求已中断，请重试未完成的条目。');
@@ -423,9 +446,6 @@ export async function sdkProvider({ connection, role = 'unknown', system, prompt
         if (part.text.length) clearTimeout(firstOutputTimer);
         text += part.text; textCharacters += part.text.length;
         await emit({ type: 'text-delta', text: part.text });
-        const records = wire && !wire.review ? textWireRecords(scan(part.text), wire, streamed) : [];
-        records.forEach(record => { if (typeof record.id === 'string') completedIds.add(record.id); });
-        if (records.length) await onRecords?.(records);
       } else if (part.type === 'reasoning-delta') {
         // Thinking is work, not idling: it restarts the first-answer deadline exactly like text does.
         // Otherwise a model that reasons through its prompt is killed mid-thought; the request total
@@ -437,18 +457,10 @@ export async function sdkProvider({ connection, role = 'unknown', system, prompt
       else continue;
       await onProgress?.({ receivedCharacters: textCharacters + reasoningCharacters, textCharacters, reasoningCharacters });
     }
-    const raw = wire ? text : text.trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '');
     const [usage, finishReason, metadata] = await Promise.all([response.usage, response.finishReason, response.response]);
     Object.assign(terminal, { usage, finishReason });
     requestId ??= metadata?.id;
-    if (wire && !wire.review && finishReason === 'stop') {
-      const records = textWireRecords(scan.final({ finishReason }), wire, streamed);
-      records.forEach(record => completedIds.add(record.id));
-      if (records.length) await onRecords?.(records);
-    }
-    const decoded = parseModelResponse(raw, { finishReason, reasoningCharacters, explicitRefusal,
-      responseProtocol: wire ? TEXT_WIRE_VERSION : responseProtocol, review: wire?.review, markerDepth: wire?.state.markerDepth ?? 1 });
-    const parsed = wire ? decodeTextResponse(decoded, wire, { allowPartialReview: true }) : decoded;
+    const parsed = parseTerminal(finishReason);
     if (parsed.readingNotes !== undefined && typeof parsed.readingNotes !== 'string') {
       const error = new Error('阅读笔记需要使用字符串并标明证据 ID，请按本阶段协议继续。'); error.code = 'INVALID_RESPONSE'; throw error;
     }
@@ -460,56 +472,46 @@ export async function sdkProvider({ connection, role = 'unknown', system, prompt
       error.code = 'INVALID_RESPONSE'; throw error;
     }
     await emit({ type: 'parsed', finishReason, textCharacters, reasoningCharacters });
+    if (wire && !wire.review && !parsed.evidenceRequests?.length && parsed.records?.length) {
+      // Admission happens only after the entire delivery has been diagnosed.
+      parsed.records.forEach(record => completedIds.add(record.id));
+    }
     // One accounting record per request, in the shared shape the other two channels also use.
     recordUsage({ role, model: connection.model, usage: usage ?? rawUsage, cost: rawUsage?.cost ?? rawUsage?.total_cost, outcome: 'succeeded' });
     return { ...parsed, usage, finishReason, transportRequests, textCharacters, reasoningCharacters,
       ...(rawUsage ? { rawUsage } : {}), ...(terminal.providerMetadata ? { providerMetadata: terminal.providerMetadata } : {}), ...(requestId ? { requestId } : {}) };
   } catch (error) {
     if (wire) {
-      const table = new Map(wire.state.entries), targets = new Set(wire.targetIds);
-      const revoked = new Set([...(error.invalidatedIds ?? []), ...(error.invalidatedRefs ?? []).map(ref => table.get(ref))].filter(id => targets.has(id)));
-      if (wire.review && text && !explicitRefusal && terminal.finishReason !== 'content-filter' && error.code !== 'MODEL_REFUSAL') {
-        let partial;
+      if (!parseAttempted && text) {
         try {
-          // An interrupted reply can attest explicit, closed edits, never omitted unchanged text.
-          partial = parseModelResponse(text, { finishReason: 'interrupted', reasoningCharacters, responseProtocol: TEXT_WIRE_VERSION,
-            review: true, markerDepth: wire.state.markerDepth ?? 1 });
-        } catch (recoveryError) {
-          for (const ref of recoveryError.invalidatedRefs ?? []) if (targets.has(table.get(ref))) revoked.add(table.get(ref));
-          if (recoveryError.code !== 'MODEL_REFUSAL') partial = { changes: recoveryError.completedRows ?? [] };
+          const saved = parseTerminal('interrupted');
+          if (!saved.evidenceRequests?.length) {
+            error.completedRecords = saved.records;
+            error.partialReview = saved.review;
+          }
         }
-        const changes = partial?.changes?.filter(row => Array.isArray(row) && targets.has(table.get(row[0])) && !revoked.has(table.get(row[0])));
-        if (changes?.length) {
-          try {
-            const edited = new Set(changes.map(row => row[0]));
-            const questions = (partial.questions ?? []).filter(row => edited.has(row?.[0]));
-            const saved = decodeTextResponse({ ...partial, complete: false, changes, questions }, wire, { allowPartialReview: true });
-            // A request for evidence makes these edits provisional, just as on a normal response.
-            if (!saved.evidenceRequests?.length && saved.review) {
-              error.partialReview = saved.review;
-              for (const id of saved.review.reviewedIds) completedIds.add(id);
-            }
-          } catch { /* Recovery must not replace the original request failure. */ }
+        catch (parseError) {
+          error.completedRows = parseError.completedRows;
+          error.invalidatedRefs = parseError.invalidatedRefs;
+          error.invalidatedIds = parseError.invalidatedIds;
+          error.completedRecords = parseError.completedRecords;
+          error.partialReview = parseError.partialReview;
         }
       }
-      error.invalidatedIds = [...revoked];
-      for (const id of revoked) completedIds.delete(id);
-      if (!wire.review && Array.isArray(error.completedRows)) {
-        const safe = error.completedRows.filter(row => Array.isArray(row) && targets.has(table.get(row[0])) && !revoked.has(table.get(row[0])) && !streamed.has(table.get(row[0])));
-        if (safe.length) {
-          const records = textWireRecords(safe, wire, streamed);
-          records.forEach(record => completedIds.add(record.id));
-          await onRecords?.(records);
-        }
+      if (error.completedRecords?.length) {
+        for (const record of error.completedRecords) completedIds.add(record.id);
       }
+      for (const id of error.partialReview?.reviewedIds ?? []) completedIds.add(id);
+      for (const id of error.invalidatedIds ?? []) completedIds.delete(id);
     }
     const preflightCauses = []; for (let value = error; value && !preflightCauses.includes(value); value = value.cause) preflightCauses.push(value);
     const preflight = preflightCauses.find(value => value.code === 'TEXT_REQUEST_CAPACITY_EXCEEDED');
-    const failure = signal?.aborted ? signal.reason : firstOutput.signal.aborted ? firstOutput.signal.reason : preflight ?? capacityFailure ?? error;
+    const failure = signal?.aborted ? signal.reason : firstOutput.signal.aborted ? firstOutput.signal.reason : preflight ?? receiveFailure ?? capacityFailure ?? error;
     if (capacityFailure && failure === capacityFailure) failure.cause = error;
     if (failure && typeof failure === 'object') {
       if (error.invalidatedIds?.length) failure.invalidatedIds = error.invalidatedIds;
       if (error.partialReview) failure.partialReview = error.partialReview;
+      if (error.completedRecords) failure.completedRecords = error.completedRecords;
       const causes = []; for (let value = failure; value && !causes.includes(value); value = value.cause) causes.push(value);
       // A missing stream terminator is a broken provider response, not JSON the model can repair.
       if (causes.some(value => /response stream ended without a finish reason/i.test(value.message ?? ''))) failure.code = 'ECONNRESET';
@@ -576,6 +578,46 @@ export function rejectsCeiling(raw) {
     && /\b(?:too\s+large|exceeds?|maximum|max\s+size|context\s+length|out\s+of\s+range|unsupported|not\s+supported|not\s+allowed|unknown|unrecognized|unexpected|invalid|not\s+permitted)\b/i.test(text);
 }
 
+/** One terminal parser shared by live receipt and caller-bound crash replay. */
+export function receiveTextResponse(raw, { wire, ...options } = {}) {
+  let decoded;
+  const decodeTerminal = value => {
+    if (!wire) return value;
+    const { responseWarnings, ...body } = value;
+    const result = decodeTextResponse(body, wire, { allowPartialReview: true });
+    return responseWarnings ? { ...result, responseWarnings } : result;
+  };
+  try {
+    decoded = parseModelResponse(raw, { ...options, ...(wire ? { responseProtocol: TEXT_WIRE_VERSION, review: wire.review, markerDepth: wire.state.markerDepth ?? 1 } : {}) });
+    if (wire?.review && options.finishReason !== 'stop') {
+      const edited = new Set((decoded.changes ?? []).map(row => row[0]));
+      decoded = { ...decoded, complete: false, questions: (decoded.questions ?? []).filter(row => edited.has(row?.[0])) };
+    }
+    return decodeTerminal(decoded);
+  } catch (error) {
+    if (!wire || ['MODEL_REFUSAL', 'MODEL_EMPTY_RESPONSE', 'MODEL_REASONING_ONLY'].includes(error.code)) throw error;
+    decoded ??= error.parsedResponse;
+    const table = new Map(wire.state.entries), targets = new Set(wire.targetIds);
+    const revoked = new Set([...(error.invalidatedIds ?? []), ...(error.invalidatedRefs ?? []).map(ref => table.get(ref))]);
+    const rows = (error.completedRows ?? decoded?.text ?? decoded?.changes ?? [])
+      .filter(row => Array.isArray(row) && targets.has(table.get(row[0])) && !revoked.has(table.get(row[0])));
+    error.invalidatedIds = [...revoked].filter(id => targets.has(id));
+    error.completedRecords = [];
+    try {
+      const edited = new Set(rows.map(row => row[0]));
+      const partial = wire.review
+        ? { ...decoded, complete: false, changes: rows, questions: (decoded?.questions ?? []).filter(row => edited.has(row?.[0])) }
+        : { ...decoded, text: rows };
+      const saved = decodeTerminal(partial);
+      if (!saved.evidenceRequests?.length) {
+        error.completedRecords = saved.records ?? [];
+        if (saved.review?.reviewedIds.length) error.partialReview = saved.review;
+      }
+    } catch { /* Never replace the full-response failure with salvage diagnostics. */ }
+    throw error;
+  }
+}
+
 export function parseModelResponse(raw, { finishReason, reasoningCharacters = 0, explicitRefusal = false, responseProtocol, review = false, markerDepth = 1 } = {}) {
   const fail = (code, message, details = {}) => { throw Object.assign(new Error(message), { code, ...details }); };
   if (!raw || !raw.trim().replace(/^\uFEFF/, '')) {
@@ -585,11 +627,11 @@ export function parseModelResponse(raw, { finishReason, reasoningCharacters = 0,
     fail('MODEL_EMPTY_RESPONSE', '模型返回了空正文，请检查接口响应后继续。');
   }
   if (responseProtocol === TEXT_WIRE_VERSION) {
-    if (explicitRefusal || finishReason === 'content-filter' || /^(?:I\s+(?:cannot|can't|am unable to|must refuse)|Sorry[,，]?\s+I\s+(?:cannot|can't)|(?:抱歉[，,。\s]*)?(?:我(?:无法|不能)|无法提供|不能提供))/i.test(raw.trim())) fail('MODEL_REFUSAL', '模型明确拒绝了本轮文字任务，请更换适用模型后继续。');
+    if (explicitRefusal || finishReason === 'content-filter') fail('MODEL_REFUSAL', '模型明确拒绝了本轮文字任务，请更换适用模型后继续。');
     const result = parseTextBlocks(raw, { finishReason, review, markerDepth });
     if (finishReason === 'length') fail('MODEL_OUTPUT_TRUNCATED', review
       ? '校对回复达到输出上限，本批尚未确认完成；此前已保存的其他审阅成果保留。'
-      : '模型回复达到输出上限，已结束的文字块保留，未结束的最后一条未采用。', { completedRows: result.text ?? [] });
+      : '模型回复达到输出上限，已结束的文字块保留，未结束的最后一条未采用。', { completedRows: result.text ?? result.changes ?? [], parsedResponse: result });
     return result;
   }
   let parsed;

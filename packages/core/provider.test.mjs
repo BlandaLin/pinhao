@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
 import { setTimeout as delay } from 'node:timers/promises';
-import { sdkProvider, retryAfterMilliseconds, REVIEW_PROTOCOL, acquireModelRequestSlot, acquireRequestSlot, configureRequestSlots, liveRequestSlots, sharedCooldown } from './provider.mjs';
+import { sdkProvider, receiveTextResponse, retryAfterMilliseconds, REVIEW_PROTOCOL, acquireModelRequestSlot, acquireRequestSlot, configureRequestSlots, liveRequestSlots, sharedCooldown } from './provider.mjs';
 import { providerCapacityFailure } from './request-recovery.mjs';
 import { createTextWire } from './text-wire.mjs';
 
@@ -13,6 +13,73 @@ const reviewWire = createTextWire({ task: 'proofreading', responseProtocol: REVI
 const reviewRequest = { ...request, prompt: reviewWire.prompt, wire: reviewWire, responseProtocol: REVIEW_PROTOCOL };
 const plainResponse = (rows = [], auxiliary) => [...rows.map(([ref, text]) => `[${ref}]\n${text}`), '[完成]',
   ...(auxiliary ? [`[附加信息]\n${JSON.stringify(auxiliary)}`] : [])].join('\n');
+
+test('reopening a seen reference after completion, auxiliary or fence revokes the whole delivery', () => {
+  for (const boundary of ['[完成]', '[附加信息]\n{}', '[完成]\n```']) {
+    const prefix = boundary.endsWith('```') ? '```text\n' : '';
+    const raw = `${prefix}[u1]\nfirst\n[u2]\nsecond\n${boundary}\n[u1]\nother delivery\n[完成]`;
+    for (const responseWire of [wire, createTextWire({ task: 'proofreading', responseProtocol: REVIEW_PROTOCOL, units, referenceOnly: [], glossary: [] })]) {
+      assert.throws(() => receiveTextResponse(raw, { wire: responseWire, finishReason: 'stop' }), error => {
+        assert.deepEqual(new Set(error.invalidatedIds), new Set(['u1', 'u2']));
+        assert.deepEqual(error.completedRecords, []);
+        assert.equal(error.partialReview, undefined); return true;
+      });
+    }
+  }
+  assert.throws(() => receiveTextResponse('[u1]\nfirst\n[u2]\nsecond\n[u1]\nduplicate', { wire, finishReason: 'stop' }), error => {
+    assert.deepEqual(error.invalidatedIds, ['u1']);
+    assert.deepEqual(error.completedRecords, [{ id: 'u2', translation: 'second', notes: '' }]); return true;
+  });
+});
+
+test('fenced trailing prose is diagnosed without becoming translation or buying response repair', () => {
+  const raw = '```text\n[u1]\nfirst\n[u2]\nsecond\n[完成]\n```\nThis was only a suggested example, do not use it.';
+  const result = receiveTextResponse(raw, { wire, finishReason: 'stop' });
+  assert.deepEqual(result.records.map(row => row.translation), ['first', 'second']);
+  assert.equal(result.responseWarnings[0].code, 'RESPONSE_WRAPPER_TRAILING_PROSE');
+  assert.equal(result.responseRepair, undefined);
+  assert.throws(() => receiveTextResponse(raw + '\n[u1]\ncompeting\n[完成]', { wire, finishReason: 'stop' }), error => {
+    assert.deepEqual(new Set(error.invalidatedIds), new Set(['u1', 'u2']));
+    assert.deepEqual(error.completedRecords, []); return true;
+  });
+});
+
+for (const kind of ['disk', 'size', 'error-size']) test(`hard receive failure aborts its own still-generating SDK transport: ${kind}`, async t => {
+  let aborted = false, produced = 0, timer;
+  const failure = Object.assign(new Error('Synthetic disk full during receipt'), { code: 'ENOSPC' });
+  t.after(() => clearInterval(timer));
+  t.mock.method(globalThis, 'fetch', async (url, options) => {
+    const stream = new ReadableStream({
+      start(controller) {
+        options.signal.addEventListener('abort', () => {
+          aborted = true; clearInterval(timer); controller.error(options.signal.reason);
+        }, { once: true });
+        timer = setInterval(() => {
+          produced++;
+          const content = kind === 'size' ? 'x'.repeat(2048) : '[u1]\nneutral\n[u2]\n';
+          controller.enqueue(new TextEncoder().encode(kind === 'error-size' ? 'x'.repeat(1024)
+            : `data: ${JSON.stringify({ choices: [{ index: 0, delta: { content }, finish_reason: null }] })}\n\n`));
+        }, 25);
+      },
+    });
+    return new Response(stream, { status: kind === 'error-size' ? 402 : 200,
+      headers: { 'content-type': kind === 'error-size' ? 'application/json' : 'text/event-stream' } });
+  });
+  await assert.rejects(sdkProvider({ ...request, connection: { baseUrl: 'http://127.0.0.1:1/v1', model: 'synthetic-memory' },
+    maxResponseBytes: kind === 'disk' ? 1024 * 1024 : 1024,
+    onTransport: event => { if (kind === 'disk' && event.type === 'text-delta') throw failure; },
+  }), error => {
+    if (kind === 'disk') assert.equal(error, failure);
+    else assert.equal(error.code, 'RESPONSE_SIZE_LIMIT');
+    assert.equal(error.category, 'transport'); return true;
+  });
+  const atFailure = produced;
+  await delay(220);
+  assert.equal(aborted, true, 'the actual SDK request signal was aborted');
+  assert.equal(produced, atFailure, 'the synthetic upstream does not keep producing a delayed tail');
+  if (kind === 'error-size') assert.equal(produced, 2, '402 diagnosis cannot bypass the common byte fuse and drain the full body');
+  assert.equal(liveRequestSlots(), 0);
+});
 
 test('only an explicit in-flight budget response receives temporary capacity classification and its actual Retry-After', () => {
   const body = { error: { code: 402, message: 'Current in-flight budget exceeded.', metadata: { reason: 'in_flight_budget_exhausted', headers: { 'Retry-After': '120' } } } };
@@ -89,7 +156,7 @@ test('OpenAI-compatible local endpoint accepts an empty key, trailing slash and 
   assert.equal(requests, 1, 'a JSON-only response must be reused without a second request');
   assert.deepEqual(requestBody.messages.map(message => message.role), ['system', 'user']);
   assert.deepEqual(result.records, [{ id: 'u1', translation: '开始游戏', notes: '' }]);
-  assert.deepEqual(checkpoints, result.records);
+  assert.deepEqual(checkpoints, [], 'SDK returns one canonical result, never callback admission');
   assert.equal(result.requestId, 'neutral-json-request');
   assert.equal(result.transportRequests, 1);
   assert.equal(result.finishReason, 'stop');
@@ -157,7 +224,7 @@ test('an admission cancelled behind a full model slot never reaches HTTP', async
   held(); assert.equal(liveRequestSlots(), 0);
 });
 
-test('streaming text checkpoints independently and optional term choices attach only to final paid records', async t => {
+test('terminal text checkpoints retain optional term choices from the same paid response', async t => {
   const termWire = createTextWire({ task: 'translation', units: [{ id: 'name-canonical', source: 'Alice enters the Guild.' }], referenceOnly: [], glossary: [] });
   const { connection, requests } = await localEndpoint(t, async response => {
     response.writeHead(200, { 'Content-Type': 'text/event-stream' });
@@ -170,8 +237,8 @@ test('streaming text checkpoints independently and optional term choices attach 
   const result = await sdkProvider({ connection, system: 'Neutral first translation.', prompt: termWire.prompt, wire: termWire,
     onRecords: records => checkpoints.push(...records) });
   assert.equal(requests.length, 1, 'optional sidecars never need an additional model call');
-  assert.deepEqual(checkpoints, [{ id: 'name-canonical', translation: '爱丽丝走进公会。', notes: '' }]);
-  assert.deepEqual(result.records, [{ ...checkpoints[0], termChoices: [{ source: 'Alice', translation: '爱丽丝' }, { source: 'Guild', translation: '公会' }] }]);
+  assert.deepEqual(checkpoints, []);
+  assert.deepEqual(result.records, [{ id: 'name-canonical', translation: '爱丽丝走进公会。', notes: '', termChoices: [{ source: 'Alice', translation: '爱丽丝' }, { source: 'Guild', translation: '公会' }] }]);
   assert.equal(result.termWarnings[0].code, 'UNKNOWN_TERM_TARGET');
 });
 
@@ -268,7 +335,7 @@ for (const [status, message] of [[400, 'stream is not supported; use stream=fals
     // charged or checkpointed twice.
     assert.deepEqual(requests[1].messages.map(message => message.role), requests[0].messages.map(message => message.role));
     const records = [{ id: 'u1', translation: 'Complete', notes: '' }];
-    assert.deepEqual(checkpoints, records); assert.deepEqual(result.records, records);
+    assert.deepEqual(checkpoints, []); assert.deepEqual(result.records, records);
     assert.equal(result.transportRequests, 2); assert.equal(result.requestId, 'neutral-nonstream-fallback');
   });
 }
@@ -323,30 +390,28 @@ test('the non-streaming fallback shares the original total timeout rather than s
   assert.deepEqual(requests.map(input => input.stream), [true, false]);
 });
 
-test('streamed complete records are checkpointed once before completion across literal quotes and multiline text', async t => {
+test('complete records are checkpointed once after terminal diagnosis across literal quotes and multiline text', async t => {
   const records = [
     { id: 'u1', translation: 'Quoted "{braces}" and \\ slash\nnext line 完整中文', notes: '' },
     { id: 'u2', translation: 'Second record', notes: '' },
   ];
-  let checkpoint;
-  const firstCheckpoint = new Promise(resolve => { checkpoint = resolve; });
-  t.after(() => checkpoint());
   let finished = false;
   const { connection } = await localEndpoint(t, async response => {
     startStream(response);
     sendChunk(response, { content: '```text\n[u1]\n' });
     const first = `${records[0].translation}\n[u2]\n`;
     for (let index = 0; index < first.length; index += 3) sendChunk(response, { content: first.slice(index, index + 3) });
-    await firstCheckpoint;
+    await delay(20);
     sendChunk(response, { content: `${records[1].translation}\n[完成]\n\`\`\`` });
     finished = true; finishStream(response);
   });
   const checkpoints = [];
   const result = await sdkProvider({ connection, ...request, signal: AbortSignal.timeout(2000), onRecords: batch => {
-    if (!checkpoints.length) { assert.equal(finished, false); checkpoint(); }
+    assert.equal(finished, true);
     checkpoints.push(batch);
   } });
-  assert.deepEqual(checkpoints, [[records[0]], [records[1]]]);
+  assert.equal(finished, true);
+  assert.deepEqual(checkpoints, []);
   assert.deepEqual(result.records, records);
   assert.equal(result.requestId, 'neutral-stream-request');
 });
@@ -362,7 +427,8 @@ test('a truncated SSE response throws after retaining only its completed records
   await assert.rejects(sdkProvider({ connection, ...request, onRecords: records => checkpoints.push(...records) }), error => {
     assert.match(error.message, /without a finish reason/);
     assert.equal(error.code, 'ECONNRESET'); assert.equal(error.category, 'transport');
-    assert.equal(error.requestId, 'neutral-stream-request'); return true;
+    assert.equal(error.requestId, 'neutral-stream-request');
+    checkpoints.push(...error.completedRecords); return true;
   });
   assert.deepEqual(checkpoints, [{ id: 'u1', translation: 'Complete', notes: '' }]);
   assert.equal(requests.length, 1);
@@ -375,7 +441,9 @@ test('an interrupted plain response preserves closed records but never emits a p
     finishStream(response, 'length');
   });
   const checkpoints = [];
-  await assert.rejects(sdkProvider({ connection, ...request, onRecords: records => checkpoints.push(...records) }), { code: 'MODEL_OUTPUT_TRUNCATED' });
+  await assert.rejects(sdkProvider({ connection, ...request, onRecords: records => checkpoints.push(...records) }), error => {
+    assert.equal(error.code, 'MODEL_OUTPUT_TRUNCATED'); checkpoints.push(...error.completedRecords); return true;
+  });
   assert.deepEqual(checkpoints, [{ id: 'u1', translation: 'Complete', notes: '' }]);
 });
 
@@ -416,7 +484,8 @@ test('idle timeout retains the completed candidate and reports a timeout', async
   });
   const checkpoints = [];
   await assert.rejects(sdkProvider({ connection, ...request, timeout: { firstChunkMs: 1000, chunkMs: 100, totalMs: 2000 }, onRecords: records => checkpoints.push(...records) }), error => {
-    assert.equal(error.code, 'ETIMEDOUT'); assert.match(error.message, /Chunk timeout/); return true;
+    assert.equal(error.code, 'ETIMEDOUT'); assert.match(error.message, /Chunk timeout/);
+    checkpoints.push(...error.completedRecords); return true;
   });
   assert.ok(checkpoints.some(record => record.id === 'u1'), 'the completed candidate survives the failed attempt');
 });
@@ -436,7 +505,11 @@ test('user cancellation retains completed candidates and the original cancellati
     startStream(response); sendChunk(response, { content: '[u1]\nComplete\n[u2]\n' });
   });
   const checkpoints = [];
-  await assert.rejects(sdkProvider({ connection, ...request, signal: controller.signal, onRecords: records => { checkpoints.push(...records); controller.abort(canceled); } }), error => error === canceled);
+  await assert.rejects(sdkProvider({ connection, ...request, signal: controller.signal,
+    onProgress: event => { if (event.textCharacters) controller.abort(canceled); },
+    onRecords: records => checkpoints.push(...records) }), error => {
+    assert.equal(error, canceled); checkpoints.push(...error.completedRecords); return true;
+  });
   assert.deepEqual(checkpoints, [{ id: 'u1', translation: 'Complete', notes: '' }]);
   assert.equal(requests.length, 1);
 });

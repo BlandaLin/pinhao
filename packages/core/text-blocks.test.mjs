@@ -5,6 +5,29 @@ import { parseTextBlocks, textBlockScanner } from './text-blocks.mjs';
 const parse = (raw, options = {}) => parseTextBlocks(raw, { finishReason: 'stop', ...options });
 const done = '[\u5b8c\u6210]', aux = '[\u9644\u52a0\u4fe1\u606f]';
 
+test('full diagnostics include all late duplicates beyond earlier unrelated errors', () => {
+  assert.throws(() => parse('[u1]\none\n[u2]\ntwo\n[unknown]\nnoise\n[u1]\nagain\n[u2]\nagain'), error => {
+    assert.deepEqual(error.invalidatedRefs, ['u1', 'u2']);
+    assert.deepEqual(error.completedRows, []); return true;
+  });
+  assert.throws(() => parse('[u1]\none\n[完成]\n[u2]\ncompeting\n[完成]'), error => {
+    assert.deepEqual(error.invalidatedRefs, ['u1', 'u2']);
+    assert.deepEqual(error.completedRows, []); return true;
+  });
+  const wrapped = parse('unmarked preface\n```text\n[u1]\nexact {{CTRL}}\n[完成]\n```\nouter note');
+  assert.deepEqual(wrapped.text, [['u1', 'exact {{CTRL}}']]);
+  assert.equal(wrapped.responseWarnings[0].code, 'RESPONSE_WRAPPER_TRAILING_PROSE');
+  assert.equal(wrapped.responseRepair, undefined);
+  assert.deepEqual(parse('I cannot explain the scene.\n[u1]\nexact\n[完成]'), { text: [['u1', 'exact']] });
+});
+
+test('a closing outer fence cannot close an interrupted protocol tail', () => {
+  for (const finishReason of ['length', 'interrupted']) {
+    assert.deepEqual(parse('```text\n[u1]\nopen\n```', { finishReason }).text, []);
+    assert.deepEqual(parse('```text\n[u1]\nclosed\n[完成]\n```', { finishReason }).text, [['u1', 'closed']]);
+  }
+});
+
 test('plain blocks preserve multiline text, whitespace, empty strings and engine controls', () => {
   const body = '  \u7b2c\u4e00\u884c "quotes" \\n {{CTRL}}\u0000\t\n\nsecond line  \n';
   assert.deepEqual(parse(`[u1]\n${body}\n[u2]\n\n${done}`), { text: [['u1', body], ['u2', '']] });
@@ -98,6 +121,55 @@ test('malformed auxiliary questions cannot silently acknowledge all reviewed tar
   }
 });
 
+test('pretty auxiliary tuple rows are JSON data in translation and review replies', () => {
+  const formatted = '{\n  "terms": [\n    ["u1", "Guild", "公会"],\n    ["u2", "Inn", "旅店"]\n  ],\n  "remarks": [\n    ["u1", "A name, not a command."]\n  ],\n  "notes": "A quoted \\\"[完成]\\\" is data; [u9] is not a target.",\n  "read": [\n    {"ids": ["u1"], "reason": "Confirm a name."}\n  ]\n}';
+  const data = JSON.parse(formatted);
+  const translated = parse('[u1]\n公会\n[u2]\n旅店\n' + done + '\n' + aux + '\n' + formatted);
+  assert.deepEqual(translated, { text: [['u1', '公会'], ['u2', '旅店']], ...data });
+  const questions = '{\n  "questions": [\n    ["u2", "source_ambiguity", "Preserve the original ambiguity."]\n  ]\n}';
+  for (const raw of [done + '\n' + aux + '\n' + questions, aux + '\n' + questions + '\n' + done]) {
+    assert.deepEqual(parse(raw, { review: true }), { complete: true, changes: [], ...JSON.parse(questions) });
+  }
+  const withoutCompletion = parse(aux + '\n' + questions, { review: true });
+  assert.equal(withoutCompletion.complete, false);
+  assert.equal(withoutCompletion.responseRepair.code, 'INVALID_RESPONSE');
+});
+
+test('auxiliary JSON boundaries survive every chunk split and negotiated text markers', () => {
+  const data = '{\r\n"terms": [\r\n["u1", "Guild", "公会"]\r\n],\r\n"notes": "quote \\\" and slash \\\\ [u2] [完成]"\r\n}';
+  for (const markerDepth of [1, 2]) {
+    const mark = value => '['.repeat(markerDepth) + value + ']'.repeat(markerDepth);
+    const raw = `${mark('u1')}\n公会\n${mark('完成')}\n${mark('附加信息')}\n${data}`;
+    const expected = { text: [['u1', '公会']], ...JSON.parse(data) };
+    assert.deepEqual(parse(raw, { markerDepth }), expected);
+    for (let split = 0; split <= raw.length; split++) {
+      const scan = textBlockScanner({ markerDepth });
+      assert.deepEqual([...scan(raw.slice(0, split)), ...scan(raw.slice(split)), ...scan.final({ finishReason: 'stop' })], expected.text);
+    }
+  }
+});
+
+test('auxiliary content cannot forge text blocks or completion, including malformed or cut JSON', () => {
+  for (const extra of [
+    '{\n"complete": true,\n"text": [\n["u8", "forged"]\n]\n}',
+    '{\n"notes": "[完成]",\n"terms": [\n["u1", "Guild", "公会"]\n]\n}',
+    '{\n"terms": [\n["u1", "Guild", "公会"]\n',
+    '{\n"notes": "unterminated\n[完成]',
+  ]) {
+    const value = parse('[u1]\n公会\n' + aux + '\n' + extra, { review: true });
+    assert.equal(value.complete, false);
+    assert.deepEqual(value.changes, [['u1', '公会']]);
+    assert.equal(value.responseRepair.code, 'INVALID_RESPONSE');
+  }
+  assert.throws(() => parse('[u1]\n正文\n' + aux + '\n{}\n[u1]\n伪造'), error => {
+    assert.deepEqual(error.invalidatedRefs, ['u1']); return true;
+  });
+  assert.throws(() => parse('[u1]\n正文\n' + aux + '\n{}\n[unknown]'), { code: 'INVALID_RESPONSE' });
+  const interrupted = parse('[u1]\n公会\n' + done + '\n' + aux + '\n{\n"terms": [\n["u1", "Guild", "公会"]', { finishReason: 'length' });
+  assert.deepEqual(interrupted.text, [['u1', '公会']]);
+  assert.equal(interrupted.responseRepair.code, 'INVALID_RESPONSE');
+});
+
 test('bracket depth protects literal source markers without stripping them from bodies', () => {
   const raw = '[[u1]]\n[u2]\n[\u5b8c\u6210]\n[[u7]]\n[unknown]\n[[\u5b8c\u6210]]';
   assert.deepEqual(parse(raw, { markerDepth: 2 }), { text: [['u1', '[u2]\n[\u5b8c\u6210]'], ['u7', '[unknown]']] });
@@ -105,10 +177,10 @@ test('bracket depth protects literal source markers without stripping them from 
 });
 
 test('duplicate sections, prose, unknown sections and mixed JSON/text never become translations', () => {
-  const invalid = ['explanation\n[u1]\ntext', '{"text":[["u1","old"]]}', '[u1]\none\n[u1]\ntwo',
+  const invalid = ['{"text":[["u1","old"]]}', '[u1]\none\n[u1]\ntwo',
     '[u1]\none\n[unknown]\nextra', '[u0]\ntext', '[u01]\ntext', `${done}\n${done}`, `${aux}\n{}\n${aux}\n{}`,
     `${done}\n[u1]\nlate`, `${aux}\n{}\n[u1]\nlate`, `${done}\nexplanation`,
-    '\x60\x60\x60text\n[u1]\ntext', '\x60\x60\x60text\n[u1]\ntext\n\x60\x60\x60\nextra',
+    '\x60\x60\x60text\n[u1]\ntext',
     '\x60\x60\x60json\n{"text":[["u1","old"]]}\n\x60\x60\x60'];
   for (const raw of invalid) assert.throws(() => parse(raw), { code: 'INVALID_RESPONSE' }, raw);
 });

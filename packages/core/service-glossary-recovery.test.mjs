@@ -14,7 +14,7 @@ async function until(check, timeout = 15000) {
   throw new Error('Neutral glossary recovery fixture timed out');
 }
 
-async function fixture(t, sourceUnits, provider, { concurrency = 3, skipGlossary = false, legacySingletons = false } = {}) {
+async function fixture(t, sourceUnits, provider, { concurrency = 3, skipGlossary = false, legacySingletons = false, maxOutputTokens = 1200 } = {}) {
   const parent = path.resolve('local/core-tests'); await mkdir(parent, { recursive: true });
   const root = await mkdtemp(path.join(parent, 'glossary-recovery-'));
   const dataDir = path.join(root, 'data'), gameDir = path.join(root, 'original'); await mkdir(gameDir);
@@ -56,19 +56,19 @@ async function fixture(t, sourceUnits, provider, { concurrency = 3, skipGlossary
     } });
   t.after(async () => { await service.close(); await rm(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 25 }); });
   await service.saveSettings({ ...defaultSettings(), concurrency, proofreading: false,
-    connection: { baseUrl: 'http://localhost:1/v1', model: 'neutral-fixture', contextWindow: 32768, maxOutputTokens: 1200 } });
+    connection: { baseUrl: 'http://localhost:1/v1', model: 'neutral-fixture', contextWindow: 32768, maxOutputTokens } });
   const inspect = action => { const db = createStore(dataDir); try { return action(db); } finally { db.close(); } };
   return { service, projectId, inspect };
 }
 
 test('persistent translation disconnect drains 19 paid siblings and resumes from the saved partial candidate', { timeout: 30000 }, async t => {
   const units = Array.from({ length: 320 }, (_, index) => ({ id: `Actors:${index + 1}:name`, kind: 'database_name',
-    source: `Person${String(index).padStart(4, '0')}`, context: { file: 'data/Actors.json', record: index + 1, field: 'name' } }));
+    source: `Person${String(index).padStart(4, '0')} ${'A complete neutral display name. '.repeat(3)}`, context: { file: 'data/Actors.json', record: index + 1, field: 'name' } }));
   const initialWave = Promise.withResolvers(), recoveryExhausted = Promise.withResolvers(), calls = [], aborted = new Set(), drained = new Set();
   t.after(() => { initialWave.resolve(); recoveryExhausted.resolve(); });
   let outage = true, firstGroup, savedCandidateId, firstPartial = true, initialCalls = 0, failedAttempts = 0;
   const record = unit => ({ id: unit.id, translation: `人物${unit.source.match(/\d+/)[0]}`, notes: '' });
-  const f = await fixture(t, units, async ({ role, prompt, signal, onRecords, wire }) => {
+  const f = await fixture(t, units, async ({ role, prompt, signal, wire }) => {
     const payload = wire.payload, ids = payload.units.map(unit => unit.id); calls.push({ role: payload.task, ids });
     assert.equal(payload.task, 'translation');
     if (!outage) {
@@ -79,9 +79,10 @@ test('persistent translation disconnect drains 19 paid siblings and resumes from
     if (++initialCalls === 20) initialWave.resolve();
     if (ids.some(id => firstGroup.has(id))) {
       await initialWave.promise;
-      if (firstPartial) { firstPartial = false; savedCandidateId = ids[0]; await onRecords([record(payload.units[0])]); }
+      const completedRecords = firstPartial ? [record(payload.units[0])] : [];
+      if (firstPartial) { firstPartial = false; savedCandidateId = ids[0]; }
       if (++failedAttempts === 3) recoveryExhausted.resolve();
-      throw Object.assign(new Error('Cannot connect to API: other side closed'), { code: 'ECONNRESET' });
+      throw Object.assign(new Error('Cannot connect to API: other side closed'), { code: 'ECONNRESET', completedRecords });
     }
     const abort = () => aborted.add(ids[0]);
     signal.addEventListener('abort', abort, { once: true });
@@ -91,7 +92,7 @@ test('persistent translation disconnect drains 19 paid siblings and resumes from
       drained.add(ids[0]);
       return { records: payload.units.map(record) };
     } finally { signal.removeEventListener('abort', abort); }
-  }, { concurrency: 20 });
+  }, { concurrency: 20, maxOutputTokens: 1000 });
   await f.service.startProject({ projectId: f.projectId, mode: 'translation' });
   const paused = await until(async () => { const project = await f.service.getProject({ projectId: f.projectId }); return project.status === 'paused' && project; });
   assert.equal(drained.size, 19, 'Already-sent sibling results are saved before the project pauses');
@@ -157,7 +158,8 @@ test('legacy prerequisite tasks are cancelled with saved candidates retained whi
   await f.service.startProject({ projectId: f.projectId, mode: 'translation' });
   const done = await until(async () => { const project = await f.service.getProject({ projectId: f.projectId }); return project.status === 'completed' && project; });
   assert.equal(done.translated, units.length); assert.equal(done.skipped, 0);
-  assert.deepEqual(requests.map(payload => payload.units.length).sort((a, b) => a - b), [2, 16]);
+  assert.equal(requests.flatMap(payload => payload.units).length, 18);
+  assert.equal(new Set(requests.flatMap(payload => payload.units.map(unit => unit.id))).size, 18);
   assert.equal(requests.some(payload => payload.units.some(unit => unit.source === 'Person0000')), true, 'old terminology output is not silently applied as a dialogue/name translation');
   const legacy = f.inspect(db => db.tasks(f.projectId).filter(task => task.id.startsWith('legacy-')));
   assert.equal(legacy.length, 18); assert.ok(legacy.every(task => task.status === 'cancelled'));
@@ -198,7 +200,7 @@ test('whole-round proofreading disconnect drains three paid siblings and resumes
       drained.add(payload.reviewScope.id);
       return review(payload);
     } finally { signal.removeEventListener('abort', abort); }
-  }, { concurrency: 4 });
+  }, { concurrency: 4, maxOutputTokens: 900 });
   await f.service.startProject({ projectId: f.projectId, mode: 'proofreading' });
   const paused = await until(async () => { const project = await f.service.getProject({ projectId: f.projectId }); return project.status === 'paused' && project; });
   assert.equal(drained.size, 3, 'Already-sent scene pages are saved before the project pauses');

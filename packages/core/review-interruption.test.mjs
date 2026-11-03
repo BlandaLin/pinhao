@@ -70,7 +70,7 @@ test('a late duplicate revokes only that explicit edit and never attests omitted
   const units = sampleRows(), prompt = taskPrompt('proofreading', units, 'zh-Hans', [], [], { reviewProtocol: true });
   const [a, b] = units.map(unit => refFor(prompt.wire, unit.id));
   const { connection } = await endpoint(t, response => {
-    start(response); chunk(response, `${block(a, '有歧义 {{CTRL_0}}')}${block(b, '独立改文 {{CTRL_0}}')}[完成]\n[${a}]\n重复`);
+    start(response); chunk(response, `${block(a, '有歧义 {{CTRL_0}}')}${block(b, '独立改文 {{CTRL_0}}')}[${a}]\n重复`);
     finish(response);
   });
   await assert.rejects(sdkProvider({ connection, ...prompt }), error => {
@@ -105,11 +105,11 @@ for (const reason of ['content_filter', 'evidence']) test(`refusal or evidence-s
   });
 });
 
-async function serviceFixture(t, { initialOutput, subsequentOutput, initialEnding } = {}) {
+async function serviceFixture(t, { initialOutput, subsequentOutput, initialEnding, rawCount = 5, connectionCapacity = {} } = {}) {
   const localRoot = path.resolve('local/review-interruption-tests'); await mkdir(localRoot, { recursive: true });
   const root = await mkdtemp(path.join(localRoot, 'neutral-')), dataDir = path.join(root, 'data'), gameDir = path.join(root, 'original');
   await mkdir(gameDir); await writeFile(path.join(gameDir, 'original.txt'), 'unchanged neutral original');
-  const raw = sampleRows(5).map(({ revision, translation, ...unit }) => unit);
+  const raw = sampleRows(rawCount).map(({ revision, translation, ...unit }) => unit);
   raw[1].context.syncGroup = raw[2].context.syncGroup = 'neutral-linked-display';
   const worker = async (command, args) => {
     if (command === 'probe') return { engine: 'MZ' };
@@ -125,10 +125,13 @@ async function serviceFixture(t, { initialOutput, subsequentOutput, initialEndin
   const { connection, requests } = await endpoint(t, async (response, index) => {
     const wire = latestWire; start(response);
     if (index === 1) {
-      const refs = raw.map(source => refFor(wire, wire.payload.units.find(unit => unit.source === source.source).id));
+      const refs = raw.flatMap(source => {
+        const unit = wire.payload.units.find(unit => unit.source === source.source);
+        return unit ? [refFor(wire, unit.id)] : [];
+      });
       const output = initialOutput?.(refs) ?? block(refs[0], '保留独立修改零 {{CTRL_0}}') + block(refs[1], '重复关联修改 {{CTRL_0}}')
         + block(refs[3], '这条故意漏控制符') + block(refs[4], '保留独立修改四 {{CTRL_0}}')
-        + `[完成]\n[${refs[1]}]\n重复不能接纳`;
+        + `[${refs[1]}]\n重复不能接纳`;
       chunk(response, output);
       if (initialEnding) finish(response, initialEnding); else await gate;
     } else { chunk(response, subsequentOutput?.(wire) ?? wire.payload.units.map(unit => block(refFor(wire, unit.id),
@@ -141,7 +144,7 @@ async function serviceFixture(t, { initialOutput, subsequentOutput, initialEndin
     } });
   t.after(async () => { release(); await service?.close(); assert.ok(root.startsWith(`${localRoot}${path.sep}`));
     await rm(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 30 }); });
-  service = await open(); await service.saveSettings({ ...defaultSettings(), connection, concurrency: 1 });
+  service = await open(); await service.saveSettings({ ...defaultSettings(), connection: { ...connection, ...connectionCapacity }, concurrency: 1 });
   const project = await service.createProject({ gameDir });
   const units = (await service.listText({ projectId: project.id })).units;
   const savedGroups = new Set();
@@ -154,6 +157,16 @@ async function serviceFixture(t, { initialOutput, subsequentOutput, initialEndin
   return { project, units, materials, requests, dataDir, get service() { return service; }, get received() { return received; }, get firstWire() { return firstWire; },
     async reopen() { await service.close(); service = await open(); }, release };
 }
+
+test('normal service rejects all explicit edits when a completed delivery is reopened', async t => {
+  const f = await serviceFixture(t, { initialOutput: refs => block(refs[0], '完整改文 {{CTRL_0}}')
+    + block(refs[4], '另条完整改文 {{CTRL_0}}') + `[完成]\n[${refs[0]}]\n竞争交稿\n[完成]` });
+  await f.service.startProject({ projectId: f.project.id, mode: 'proofreading' });
+  await until(() => f.received); await f.service.pauseProject({ projectId: f.project.id });
+  await until(async () => (await f.service.getProject({ projectId: f.project.id })).runtime.active === 0);
+  assert.equal((await f.service.listText({ projectId: f.project.id, filter: 'reviewed' })).total, 0);
+  assert.ok((await f.service.listText({ projectId: f.project.id })).units.every(unit => unit.translation.startsWith('初译')));
+});
 
 test('normal service saves independent explicit review edits on pause and resumes only the unresolved group and invalid text', async t => {
   const f = await serviceFixture(t);
@@ -211,6 +224,52 @@ test('normal service automatically retries a length-truncated review without reb
   assert.ok(f.materials.slice(1).every(wire => !wire.targetIds.includes(f.units[0].id)), 'The closed edit is not requested again after truncation');
   const final = (await f.service.listText({ projectId: f.project.id })).units;
   assert.equal(final[0].translation, '已保存截断前改文 {{CTRL_0}}'); assert.ok(final.every(unit => unit.status === 'proofread'));
+});
+
+test('normal service finalizes every closed review edit when only the optional metadata tail is truncated', async t => {
+  const f = await serviceFixture(t, { initialEnding: 'length', initialOutput: refs => refs.map((ref, index) =>
+    block(ref, index === 1 || index === 2 ? '完整关联改文 {{CTRL_0}}' : `已保存完整改文 ${index} {{CTRL_0}}`)).join('')
+    + '[完成]\n[附加信息]\n{"notes":"尚未结束的可选备注' });
+  await f.service.startProject({ projectId: f.project.id, mode: 'proofreading' });
+  await until(async () => (await f.service.getProject({ projectId: f.project.id })).status === 'completed');
+  assert.equal(f.requests.length, 1, 'All paid explicit edits were complete; optional metadata does not repurchase the batch');
+  assert.deepEqual([...f.firstWire.targetIds].sort(), f.units.map(unit => unit.id).sort());
+  const final = (await f.service.listText({ projectId: f.project.id })).units;
+  assert.ok(final.every(unit => unit.status === 'proofread'), 'D2 finishes without pausing after the optional tail truncates');
+  assert.equal(final[0].translation, '已保存完整改文 0 {{CTRL_0}}');
+  assert.equal(final[1].translation, '完整关联改文 {{CTRL_0}}');
+  assert.equal(final[2].translation, final[1].translation);
+  assert.equal(final[4].translation, '已保存完整改文 4 {{CTRL_0}}');
+  assert.equal(liveRequestSlots(), 0);
+});
+
+test('length-truncated review shrinks the actual sent page, not the larger scene scope', async t => {
+  const f = await serviceFixture(t, { rawCount: 80, connectionCapacity: { contextWindow: 32768, maxOutputTokens: 1024 },
+    initialEnding: 'length', initialOutput: refs => `[${refs[0]}]\n尚未结束的改文`, subsequentOutput: () => '[完成]' });
+  await f.service.startProject({ projectId: f.project.id, mode: 'proofreading' });
+  await until(async () => (await f.service.getProject({ projectId: f.project.id })).status === 'completed');
+  const pages = f.materials.filter(wire => wire.payload.reviewScope?.stage === 'scene');
+  assert.ok(pages.length >= 2);
+  const first = pages[0].targetIds.length, second = pages[1].targetIds.length;
+  assert.ok(first >= 4 && f.units.length > first * 2, 'The full scene is much larger than the paid first page');
+  assert.ok(second > 0 && second <= Math.floor(first / 2), `Expected the next paid page <= ${Math.floor(first / 2)}, got ${second}`);
+  const actualCounts = f.requests.map(request => {
+    const body = request.messages.map(message => message.content).join('\n');
+    return JSON.parse(body.match(/本次目标标记：(\[[^\n]*?\])/u)[1]).length;
+  });
+  assert.deepEqual(actualCounts.slice(0, 2), [first, second], 'The smaller page is present in the actual SDK HTTP messages');
+  t.diagnostic(`Scene scope ${f.units.length}; actual SDK target counts ${actualCounts.join(', ')}`);
+  const linked = f.units.filter(unit => unit.context.syncGroup).map(unit => unit.id);
+  for (const page of pages) {
+    const selected = linked.filter(id => page.targetIds.includes(id));
+    assert.ok(!selected.length || selected.length === linked.length, 'No retry or follow-up page splits the linked display group');
+  }
+  assert.deepEqual([...new Set(pages.flatMap(page => page.targetIds))].sort(), f.units.map(unit => unit.id).sort());
+  const final = (await f.service.listText({ projectId: f.project.id })).units;
+  assert.equal(final.length, 80);
+  assert.ok(final.every(unit => unit.status === 'proofread' && unit.translation.startsWith('初译')),
+    'The unfinished first edit was not accepted and all existing translations completed review');
+  assert.equal(liveRequestSlots(), 0);
 });
 
 test('an explicit needs-evidence question still blocks its interrupted edit without attesting other questioned targets', async t => {

@@ -59,8 +59,9 @@ test('ordinary translation retains real accepted names without creating terminol
 
 test('all text phases retain the unique short-reference text or differential protocol with frozen review scope', () => {
   const translation = taskPrompt('translation', [unit('u1', 'A')], 'zh-Hans');
-  assert.match(translation.system, /独立短标记行[\s\S]*正文不用 JSON/);
-  assert.match(translation.prompt, /格式示例：\n\[u1\]\n完整译文\n\[完成\]/);
+  assert.match(translation.system, /按材料中的交稿方式/);
+  assert.match(translation.prompt, /逐项交付本次目标[\s\S]*独占一行写 \[完成\]/);
+  assert.doesNotMatch(translation.prompt, /格式示例：\n\[u1\]/);
   assert.doesNotMatch(translation.system, /"text"|"records"/);
   for (const field of ['terms', 'read', 'decisions']) assert.ok(`${translation.system}\n${translation.prompt}`.includes(`"${field}"`));
   const result = taskPrompt('proofreading', [unit('u1', 'A')], 'zh-Hans', [], [], {
@@ -77,7 +78,7 @@ test('all text phases retain the unique short-reference text or differential pro
   assert.match(material, /needs_evidence[\s\S]*不得把待补证条目同时改写/);
   assert.match(result.system, /完整保持\{\{\.\.\.\}\}保护标记及顺序/);
   assert.match(result.system, /只读参考不属于交稿目标/);
-  assert.match(result.system, /明确返回完成标记，不必抄写全部审阅编号/);
+  assert.match(result.system, /按材料中的交稿方式交付校对结果/);
   assert.match(result.prompt, /独占一行写 \[完成\][\s\S]*没有修改也必须明确完成/);
   const completed = parseModelResponse('[完成]', { finishReason: 'stop', responseProtocol: TEXT_WIRE_VERSION, review: true });
   assert.deepEqual(completed, { complete: true, changes: [], questions: [] });

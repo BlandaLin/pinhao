@@ -206,11 +206,12 @@ for (const phase of ['translation', 'proofreading']) {
         await entered.promise;
         if (scene === 'alpha') {
           alphaAttempts++;
+          const completedRecords = [];
           if (phase === 'translation' && alphaAttempts === 1) {
             checkpointId = payload.units[0].id;
-            await args.onRecords?.([recordsFor(payload)[0]]);
+            completedRecords.push(recordsFor(payload)[0]);
           }
-          throw transientErrors.socket();
+          throw Object.assign(transientErrors.socket(), { completedRecords });
         }
         if (scene !== 'delta') { await releaseSiblings.promise; args.signal.throwIfAborted(); }
       }

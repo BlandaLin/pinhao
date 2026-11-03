@@ -1,6 +1,7 @@
 import { DatabaseSync } from 'node:sqlite';
 import path from 'node:path';
 import { mkdirSync } from 'node:fs';
+import { translationTaskCredit } from './progress.mjs';
 
 // 这些表达式文本必须与 units_projection 索引定义逐字一致，SQLite 才能把它们当作索引列求值
 // （表达式索引按 SQL 文本匹配），从而把状态筛选、计数和轻量投影变成只读索引的覆盖扫描。
@@ -17,6 +18,8 @@ const countProjection = ({ status, reviewStatus } = {}) => ({
 
 const taskProjection = task => ({ id: task.id, role: task.role, kind: task.kind, status: task.status,
   unitIds: task.unitIds ?? [], startedAt: task.startedAt, finishedAt: task.finishedAt,
+  commitSummary: task.commitSummary && { committed: task.commitSummary.committed, remaining: task.commitSummary.remaining,
+    unitIds: task.commitSummary.unitIds, creditIncomplete: task.commitSummary.creditIncomplete },
   requestCount: task.requestCount ?? task.requestHistory?.length ?? 0,
   requests: (task.requestHistory ?? []).map(request => ({ id: request.id, status: request.status, code: request.code,
     category: request.category, requested: request.requested, evidenceQuery: request.evidenceQuery,
@@ -36,13 +39,17 @@ const projectSelect = 'SELECT p.body,r.body AS resources FROM projects p LEFT JO
 const projectRecord = row => row && ({ ...JSON.parse(row.body), ...JSON.parse(row.resources ?? '{}') });
 
 function runtimeStats(rows) {
-  const timing = { translation: { unitIds: [], intervals: [] }, proofreading: { unitIds: [], intervals: [] } };
+  const timing = { translation: { unitIds: [], intervals: [], creditIncomplete: false }, proofreading: { unitIds: [], intervals: [] } };
   let latestRunningAt;
   for (const row of rows) {
     if (row.status === 'running' && Number.isFinite(epoch(row.startedAt))) latestRunningAt = Math.max(latestRunningAt ?? 0, epoch(row.startedAt));
     const target = row.kind === 'glossary' ? undefined : timing[row.role];
     if (!target) continue;
-    if (row.status === 'succeeded') target.unitIds.push(...row.unitIds);
+    if (row.role === 'translation') {
+      const credit = translationTaskCredit(row);
+      target.unitIds.push(...credit.unitIds);
+      target.creditIncomplete ||= credit.incomplete;
+    } else if (row.status === 'succeeded') target.unitIds.push(...row.unitIds);
     for (const request of row.requests) {
       const start = epoch(request.sentAt), end = epoch(request.finishedAt);
       if (Number.isFinite(start) && Number.isFinite(end) && end > start) target.intervals.push([start, end]);
@@ -263,7 +270,7 @@ export function createStore(dataDir, { fileName = 'pinhao.sqlite', expectedProje
     if (!taskViews.has(projectId)) {
       const rows = parse(prepare(`SELECT json_object('id',id,'role',json_extract(body,'$.role'),
         'kind',json_extract(body,'$.kind'),'status',json_extract(body,'$.status'),
-        'unitIds',json_extract(body,'$.unitIds'),'startedAt',json_extract(body,'$.startedAt'),
+        'unitIds',json_extract(body,'$.unitIds'),'commitSummary',json_extract(body,'$.commitSummary'),'startedAt',json_extract(body,'$.startedAt'),
         'finishedAt',json_extract(body,'$.finishedAt'),'requestCount',json_extract(body,'$.requestCount'),
         'requestHistory',json(COALESCE((SELECT json_group_array(json_object(
           'id',json_extract(r.value,'$.id'),'status',json_extract(r.value,'$.status'),'code',json_extract(r.value,'$.code'),

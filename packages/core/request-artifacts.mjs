@@ -6,6 +6,7 @@ import { normalizeUsage, summarizeRequestArtifacts } from './usage.mjs';
 const privateField = /^(?:authorization|proxy-authorization|cookie|set-cookie|api[-_]?key|access[-_]?token|refresh[-_]?token|password|secret)$/i;
 const contentHash = value => createHash('sha256').update(value).digest('hex');
 const contentSchema = 'pinhao-request-content-1';
+export const textRequestBindingHash = request => contentHash(JSON.stringify(request));
 
 function requestContentStore(directory) {
   const root = path.resolve(directory);
@@ -76,6 +77,34 @@ export async function readRequestArtifact({ directory, contentDirectory = path.j
   return resolveRequestMaterial(JSON.parse(await readFile(path.join(directory, 'request.json'), 'utf8')), { contentDirectory });
 }
 
+/** Read one caller-bound unfinished attempt, never infer a normal stop after a crash. */
+export async function readUnfinishedTextArtifact({ directory, expectedRequestHash, maxBytes = 32 * 1024 * 1024 }) {
+  if (!/^[a-f0-9]{64}$/.test(expectedRequestHash ?? '')) return;
+  const read = async name => {
+    const file = path.join(directory, name), info = await lstat(file);
+    if (!info.isFile() || info.isSymbolicLink() || info.size > maxBytes) throw new Error('Unsafe request capture');
+    return readFile(file);
+  };
+  try {
+    const root = await lstat(directory);
+    if (!root.isDirectory() || root.isSymbolicLink()) return;
+    try { await lstat(path.join(directory, 'result.json')); return; } catch (error) { if (error.code !== 'ENOENT') throw error; }
+    const requestText = await read('request.json'), capture = JSON.parse(await read('capture.json'));
+    if (capture.schema !== 'pinhao-text-capture-1' || capture.exact !== true || capture.requestDigest !== contentHash(requestText)
+        || !Number.isSafeInteger(capture.bytes) || capture.bytes < 1 || capture.bytes > maxBytes) return;
+    if (capture.bindingHash !== expectedRequestHash) return;
+    const body = await read('final.txt');
+    if (body.length < capture.bytes) return;
+    const prefix = body.subarray(0, capture.bytes);
+    if (contentHash(prefix) !== capture.digest) return;
+    const text = new TextDecoder('utf-8', { fatal: true }).decode(prefix);
+    return { text, finishReason: 'interrupted', exact: true, tailMayBeMissing: true };
+  } catch (error) {
+    if (['ENOENT', 'ENOTDIR'].includes(error.code) || error instanceof SyntaxError || error instanceof TypeError) return;
+    throw error;
+  }
+}
+
 /** An on-demand projection of existing evidence, not another mutable billing ledger. */
 export async function loadRequestUsageSummary(directory, { roles } = {}) {
   const artifacts = [], warnings = [];
@@ -144,14 +173,21 @@ export function redactRequestMaterial(value, secrets = []) {
   return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, privateField.test(key) ? '[REDACTED]' : redactRequestMaterial(item, secrets)]));
 }
 
-function textSink(file, secrets) {
+function textSink(file, secrets, captured) {
   let tail = '';
   return async (text = '', final = false) => {
     tail += text;
     // Keep the last token until complete so split keys and credential URLs are redacted together.
     let boundary = final ? tail.length : Math.max(tail.lastIndexOf('\n'), tail.lastIndexOf(' '), tail.lastIndexOf('\t')) + 1;
     if (!final && /\bBearer\s+$/i.test(tail.slice(0, boundary))) boundary = tail.slice(0, boundary).search(/\bBearer\s+$/i);
-    if (boundary) { await appendFile(file, redactRequestMaterial(tail.slice(0, boundary), secrets), 'utf8'); tail = tail.slice(boundary); }
+    if (boundary) {
+      const original = tail.slice(0, boundary), clean = redactRequestMaterial(original, secrets);
+      if (clean !== original) await captured?.({ redacted: true });
+      await appendFile(file, clean, 'utf8');
+      await captured?.({ text: clean });
+      tail = tail.slice(boundary);
+    }
+    if (final) await captured?.({ flush: true });
   };
 }
 
@@ -200,12 +236,25 @@ export async function createRequestArtifact({ directory, contentDirectory = path
     await writeFile(temporary, `${JSON.stringify(clean(value), null, 2)}\n`, 'utf8'); await rename(temporary, target);
   };
   await json('request.json', await storeRequestMaterial(clean({ schema: 'pinhao-request-artifact-1', capturedAt: clock(), ...request, ...(correlation ? { requestContext: correlation } : {}) }), contentStore));
+  const requestDigest = contentHash(await readFile(path.join(root, 'request.json'), 'utf8'));
+  const captureHash = createHash('sha256');
+  const bindingHash = textRequestBindingHash(request);
+  let captureBytes = 0, captureExact = true, publishedBytes = 0, publishedAt = 0;
+  const captured = async ({ text, redacted, flush }) => {
+    if (redacted) captureExact = false;
+    if (text !== undefined) { captureHash.update(text); captureBytes += Buffer.byteLength(text); }
+    if (!redacted && !flush && captureBytes - publishedBytes < 65536 && Date.now() - publishedAt < 250) return;
+    await json('capture.json', { schema: 'pinhao-text-capture-1', requestDigest, bindingHash, bytes: captureBytes,
+      digest: captureHash.copy().digest('hex'), exact: captureExact });
+    if (!files.includes('capture.json')) files.push('capture.json');
+    publishedBytes = captureBytes; publishedAt = Date.now();
+  };
   await writeFile(path.join(root, 'events.jsonl'), '', 'utf8');
   const sinks = new Map(), times = {}, files = ['request.json', 'events.jsonl'], counts = { textCharacters: 0, reasoningCharacters: 0 };
   let queue = Promise.resolve(), closed = false, finalBodyCaptured = false, finalBodyStatus = 'not-captured', toolCalls = 0;
   const serial = action => { const next = queue.then(action); queue = next.catch(() => {}); return next; };
   const sink = file => {
-    if (!sinks.has(file)) { sinks.set(file, textSink(path.join(root, file), secrets)); files.push(file); }
+    if (!sinks.has(file)) { sinks.set(file, textSink(path.join(root, file), secrets, file === 'final.txt' ? captured : undefined)); files.push(file); }
     return sinks.get(file);
   };
   const reference = () => ({ schema: 'pinhao-request-artifact-1', id: requestId, ...(correlation ? { requestContext: correlation } : {}), directory: root, contentDirectory: path.resolve(contentDirectory), files: [...files], diagnostics, finalBodyCaptured, finalBodyStatus, toolCalls, ...times, ...counts });

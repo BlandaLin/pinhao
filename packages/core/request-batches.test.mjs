@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { taskPrompt } from './provider.mjs';
 import { decodeTextResponse } from './text-wire.mjs';
 import { buildStoryContext } from '../exchange/story.mjs';
-import { createTextCapacityPlanner, textRequestEstimate, textRequestLimits } from './text-capacity.mjs';
+import { textRequestEstimate, textRequestLimits } from './text-capacity.mjs';
 import {
   collectRequestReferences,
   createRequestReferenceSelector,
@@ -290,46 +290,50 @@ test('initial translation keeps names in ordinary batches and normalizes optiona
   }
 });
 
-test('successful differential review hints combine more whole groups while retaining hard request limits', () => {
+test('differential review batching reserves complete revisions and retains hard request limits', () => {
   const connection = { baseUrl: 'https://neutral.invalid/v1', model: 'neutral', contextWindow: 32768, maxOutputTokens: 1800 };
   const groups = Array.from({ length: 40 }, (_, index) => [makeUnit(index, { source: 'Full neutral paragraph. '.repeat(7),
     translation: 'Existing complete neutral text. '.repeat(8), context: {} })]);
-  const capacityPlanner = createTextCapacityPlanner(), options = { connection, role: 'proofreading', targetLanguage: 'zh-Hans',
+  const options = { connection, role: 'proofreading', targetLanguage: 'zh-Hans',
     referenceSelector: () => [], promptOptions: { reviewProtocol: true }, allUnits: [] };
-  const cold = packRequestBatches(groups, options);
-  for (let index = 0; index < 3; index++) capacityPlanner.observe({ connection, role: 'proofreading', targetLanguage: 'zh-Hans',
-    units: cold[0], outputTokens: 20, complete: true, validated: true, finishReason: 'stop' });
-  const warm = packRequestBatches(groups, { ...options, capacityPlanner });
-  assert.ok(warm[0].length > cold[0].length);
-  assert.deepEqual(warm.flat(), groups.flat());
+  const batches = packRequestBatches(groups, options);
+  assert.ok(batches.length > 1);
+  assert.deepEqual(batches.flat(), groups.flat());
   const limits = textRequestLimits(connection);
-  for (const batch of warm) {
+  for (const batch of batches) {
     const prompt = taskPrompt('proofreading', batch, 'zh-Hans', [], [], { reviewProtocol: true, maxCharacters: limits.maxCharacters });
-    const estimate = textRequestEstimate(prompt, batch, limits, { ...options, capacityPlanner });
+    const estimate = textRequestEstimate(prompt, batch, limits, { role: 'proofreading' });
     assert.equal(estimate.overLimit, false);
+    assert.ok(estimate.estimatedOutputTokens >= batch.reduce((total, unit) => total + Math.ceil(unit.translation.length / 3 * 1.5), 0),
+      'A review may need to return a complete revision, not just a short completion marker');
     assert.ok(estimate.estimatedInputTokens + connection.maxOutputTokens <= connection.contextWindow);
     assert.ok(estimate.estimatedOutputTokens + estimate.reasoningReserve <= connection.maxOutputTokens);
   }
   const linked = [makeUnit('a', { source: 'A'.repeat(1500), translation: 'A'.repeat(1500), context: { syncGroup: 'complete' } }),
     makeUnit('b', { source: 'B'.repeat(1500), translation: 'B'.repeat(1500), context: { syncGroup: 'complete' } })];
-  assert.throws(() => packRequestBatches([linked], { ...options, capacityPlanner }), error => {
+  assert.throws(() => packRequestBatches([linked], options), error => {
     assert.equal(error.code, 'TEXT_GROUP_CAPACITY_EXCEEDED');
     assert.deepEqual(error.unitIds, linked.map(value => value.id)); return true;
-  }, 'A learned sparse review must still reject a complete group that cannot fit a full revision');
+  }, 'A complete group that cannot fit a full revision is rejected, never split or sent without capacity');
 });
 
-test('high actual output and truncation cannot ship an isolated group above the output estimate', () => {
+test('another project capacity failure cannot make an admissible complete group fail later', () => {
   const connection = { baseUrl: 'https://neutral.invalid/v1', model: 'neutral', contextWindow: 32768, maxOutputTokens: 1800 };
   const group = [makeUnit(1, { source: 'A'.repeat(1200), translation: 'A'.repeat(1200), context: {} })];
-  const capacityPlanner = createTextCapacityPlanner(), options = { connection, capacityPlanner, role: 'proofreading',
+  const options = { connection, role: 'proofreading',
     targetLanguage: 'zh-Hans', referenceSelector: () => [], promptOptions: { reviewProtocol: true }, allUnits: [] };
-  assert.equal(packRequestBatches([group], options).length, 1);
-  for (let index = 0; index < 3; index++) capacityPlanner.observe({ ...options, units: group, complete: true, validated: true,
-    finishReason: 'stop', outputTokens: 1700 });
-  assert.throws(() => packRequestBatches([group], options), { code: 'TEXT_GROUP_CAPACITY_EXCEEDED' });
-  const prior = capacityPlanner.estimate({ ...options, units: group });
-  capacityPlanner.observe({ ...options, finishReason: 'length' });
-  assert.ok(capacityPlanner.estimate({ ...options, units: group }) >= prior);
-  assert.throws(() => packRequestBatches([group], options), { code: 'TEXT_GROUP_CAPACITY_EXCEEDED' },
-    'Truncation must not forget a high actual output and accidentally expand the next request');
+  for (const role of ['translation', 'proofreading']) {
+    const selected = { ...options, role };
+    const before = packRequestBatches([group], selected);
+    assert.equal(before.length, 1);
+    const estimate = textRequestEstimate({ system: '', prompt: '' }, group, textRequestLimits(connection), { role });
+    for (let attempt = 0; attempt < 12; attempt++) {
+      assert.throws(() => packRequestBatches([group], { ...selected, connection: { ...connection, maxOutputTokens: 400 } }),
+        { code: 'TEXT_GROUP_CAPACITY_EXCEEDED' });
+      const oversized = [makeUnit(`other-project-${attempt}`, { source: 'Other complete paragraph. '.repeat(10000), context: {} })];
+      assert.throws(() => packRequestBatches([oversized], selected), { code: 'TEXT_GROUP_CAPACITY_EXCEEDED' });
+      assert.deepEqual(packRequestBatches([group], selected), before);
+      assert.deepEqual(textRequestEstimate({ system: '', prompt: '' }, group, textRequestLimits(connection), { role }), estimate);
+    }
+  }
 });

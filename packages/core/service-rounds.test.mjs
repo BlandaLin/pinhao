@@ -212,7 +212,7 @@ test('an incomplete streamed review cannot be promoted to a saved review when it
   assert.ok(final.every(unit => unit.status === 'proofread' && unit.translation.startsWith('已翻译') && unit.notes === ''));
 });
 
-test('a failed later review page retains paid earlier pages and does not falsely stamp skipped drafts as reviewed', async t => {
+test('a failed later review page retains paid earlier pages and pauses without falsely stamping drafts as reviewed', async t => {
   const reviewPages = [], units = rows(20, 20);
   for (const unit of units) unit.source += ' A complete neutral scene context.'.repeat(20);
   let badId;
@@ -229,30 +229,27 @@ test('a failed later review page retains paid earlier pages and does not falsely
   await f.service.startProject({ projectId: project.id });
   const completed = await until(async () => {
     const current = await f.service.getProject({ projectId: project.id });
-    if (current.status === 'paused') throw new Error(current.lastError ?? current.stage);
-    return current.status === 'completed' && current;
+    return current.status === 'paused' && current;
   }, 'Review page exhaustion did not settle');
   const badPage = reviewPages.findIndex(ids => ids.includes(badId));
   assert.ok(badPage > 0, 'A capacity-limited page succeeds before the later failed page');
   assert.ok(reviewPages.slice(badPage + 1).length >= 1);
   assert.ok(reviewPages.slice(badPage + 1).every(ids => ids.length === 1 && ids[0] === badId), 'Independent good receipts from the failed page are not bought again');
   const final = (await f.service.listText({ projectId: project.id })).units;
-  assert.equal(final.filter(unit => unit.status === 'proofread').length, 19);
-  assert.equal(final.filter(unit => unit.status === 'skipped').length, 1);
-  assert.equal(final[0].translation, '已验证的首屏校订');
-  assert.ok(final.filter(unit => unit.status === 'skipped').every(unit => unit.id === badId && unit.translation.startsWith('初译 ') && unit.review === undefined));
-  assert.match(completed.stage, /1 条待重试.*保留已有文字/);
-  assert.equal(completed.builds.at(-1).checks.find(check => check.name === '校对证据').status, 'pending');
+  assert.equal(final.filter(unit => unit.status === 'translated').length, 20);
+  assert.ok(final.every(unit => unit.translation.startsWith('初译 ') && unit.review === undefined), 'D2 stays provisional while the scope is paused');
+  assert.equal(completed.builds.length, 0);
   const store = createStore(path.join(f.root, 'data'));
   try {
-    const failed = store.tasks(project.id).find(task => task.reviewStage === 'scene' && task.status === 'skipped');
+    const failed = store.tasks(project.id).find(task => task.reviewStage === 'scene' && task.status === 'paused');
     assert.equal(failed.candidateRecords.length, 19);
     assert.equal(failed.reviewedUnitIds.length, 19);
+    assert.equal(failed.candidateRecords.find(record => record.id === final[0].id).translation, '已验证的首屏校订');
     assert.ok(failed.candidateRecords.every(record => !record.translation.includes('{{invented}}')));
   } finally { store.close(); }
 });
 
-test('a skipped D2 target retains only its unchanged previous review instead of inventing this rounds proof', async t => {
+test('a paused D2 target retains its previous review and does not stamp provisional sibling coverage', async t => {
   const provider = async ({ role, wire }) => {
     assert.equal(role, 'proofreading');
     return review(wire.payload, [{ id: wire.payload.units[0].id, translation: '错误新增 {{invented}}' }]);
@@ -272,15 +269,15 @@ test('a skipped D2 target retains only its unchanged previous review instead of 
   await service.startProject({ projectId: project.id, mode: 'proofreading' });
   await until(async () => {
     const current = await service.getProject({ projectId: project.id });
-    if (current.reviewRound?.stage === 'committed') return true;
-    if (current.status === 'paused') throw new Error(JSON.stringify({ stage: current.stage, error: current.lastError, round: current.reviewRound, tasks: current.tasks }));
-    return false;
+    return current.status === 'paused';
   }, 'Skipped D2 review did not settle', 10000);
   const final = (await service.listText({ projectId: project.id })).units;
-  assert.deepEqual(final.map(unit => unit.status), ['skipped', 'proofread']);
+  assert.deepEqual(final.map(unit => unit.status), ['translated', 'translated']);
   assert.deepEqual(final[0].review, previous);
-  assert.equal(final[1].review.status, 'proofread');
-  assert.notEqual(final[1].review.roundId, previous.roundId, 'An independent valid receipt belongs to this round');
+  assert.equal(final[1].review, undefined);
+  const inspect = createStore(path.join(f.root, 'data'));
+  try { assert.equal(inspect.tasks(project.id).find(task => task.reviewStage === 'scene').reviewedUnitIds.length, 1, 'The independent valid receipt remains saved for D2'); }
+  finally { inspect.close(); }
   assert.deepEqual(final.map(unit => unit.translation), ['已有译文 0', '已有译文 1']);
 });
 
@@ -331,9 +328,7 @@ for (const policy of ['continue', 'strict', 'global-api-failure']) test(`transla
   const project = await f.service.createProject({ gameDir: f.gameDir }); await f.service.startProject({ projectId: project.id });
   const terminal = await until(async () => { const current = await f.service.getProject({ projectId: project.id });
     return ['paused', 'completed'].includes(current.status) && current; }, 'Failure policy did not reach a terminal state');
-  if (policy === 'continue') {
-    assert.equal(terminal.status, 'completed'); assert.equal(terminal.skipped, 1); assert.equal(terminal.proofread, 47); assert.ok(proofCalls > 0);
-  } else {
+  {
     assert.equal(terminal.status, 'paused'); assert.equal(proofCalls, 0);
     const accepted = (await f.service.listText({ projectId: project.id })).units.filter(unit => unit.status === 'translated');
     assert.ok(accepted.length >= 16, 'The completed native-sample batch stays saved');

@@ -11,13 +11,13 @@
 <p align="center"><a href="README.md">中文</a> · English</p>
 
 <p align="center">
-  <a href="https://github.com/BlandaLin/pinhao/releases/tag/v0.6.0"><strong>Download English</strong></a> ·
-  <a href="https://github.com/BlandaLin/pinhao/releases/tag/v0.6.0">中文版</a> ·
+  <a href="https://github.com/BlandaLin/pinhao/releases/tag/v0.6.1"><strong>Download English</strong></a> ·
+  <a href="https://github.com/BlandaLin/pinhao/releases/tag/v0.6.1">中文版</a> ·
   <a href="#get-started">Get started</a> ·
   <a href="https://github.com/BlandaLin/pinhao/issues">Report an issue</a>
 </p>
 
-<p align="center">0.6.0 Public Beta · Windows 10 / 11 x64 · Free software; bring your own model API</p>
+<p align="center">0.6.1 Public Beta · Windows 10 / 11 x64 · Free software; bring your own model API</p>
 
 ![Pinhao 0.5.8 English interface: project overview for The Lighthouse Letter](.github/media/overview-en.jpg)
 
@@ -33,7 +33,16 @@ While localizing games, I ran into text that existing tools could not extract. T
 
 **Import → Extract → Translate and proofread → Build → Check in the game**
 
-## What's New in 0.6.0
+## What's New in 0.6.1
+
+- **Fix progressively shrinking text batches.** Total output usage, including reasoning and fixed overhead, no longer determines future text estimates. Complete units still follow configured capacity limits; genuine truncation reduces only the affected request.
+- **Receive replies before admitting results.** Introductory text no longer interrupts reception. The app retains the body, finish reason, and received usage before checking markers, controls, duplicates, and competing deliveries.
+- **Keep valid work and resume missing targets.** Interrupted replies retain explicitly closed, validated blocks. Before another request, the app checks an exactly matching unfinished saved reply so durable work can be recovered. Proofreading still needs explicit completion; an unfinished trailing block is not a delivery.
+- **Correct auxiliary parsing and progress.** Legal term and remark arrays no longer collide with text markers. Progress counts formally accepted text. Three consecutive format attempts without progress pause unsent work while sent requests drain and save; you can explicitly continue.
+
+[Full changes, verification scope, and known issues](docs/release-notes/v0.6.1.md#english)
+
+## 0.6.0 Release History
 
 - **Short markers and plain-text replies.** Models no longer copy long IDs or wrap translation text in JSON. Proofreading returns corrections and a completion marker; the app keeps writeback locations.
 - **Less repeated input and rework.** Requests separate language context from engineering evidence and send shared background once. Complete, validated results survive interruptions; resumed work requests the remaining text.
@@ -41,14 +50,14 @@ While localizing games, I ran into text that existing tools could not extract. T
 - **Stronger native extraction and writeback.** CSV/TSV cell adapters, Unity language-column selection and verified text-reader patterns, plus static display-source tracing for MV, RGSS, and Godot. Archives support paged indexes and selected-member reads.
 - **More build checks.** MV/MZ components use static plugin registration. Recognized name-based logic keeps its original identity. JoiPlay exports check missing resources, filename case, and audio-format candidates.
 
-[Full changes and known issues](docs/release-notes/v0.6.0.md#english)
+[0.6.0 changes and known issues](docs/release-notes/v0.6.0.md#english)
 
 ## Get Started
 
 | Interface | Windows download | Default target for new settings |
 | --- | --- | --- |
-| English | [pinhao-0.6.0-en-Windows-x64.zip](https://github.com/BlandaLin/pinhao/releases/download/v0.6.0/pinhao-0.6.0-en-Windows-x64.zip) | English |
-| 中文 | [pinhao-0.6.0-Windows-x64.zip](https://github.com/BlandaLin/pinhao/releases/download/v0.6.0/pinhao-0.6.0-Windows-x64.zip) | Simplified Chinese |
+| English | [pinhao-0.6.1-en-Windows-x64.zip](https://github.com/BlandaLin/pinhao/releases/download/v0.6.1/pinhao-0.6.1-en-Windows-x64.zip) | English |
+| 中文 | [pinhao-0.6.1-Windows-x64.zip](https://github.com/BlandaLin/pinhao/releases/download/v0.6.1/pinhao-0.6.1-Windows-x64.zip) | Simplified Chinese |
 
 1. **Extract the whole archive and run `PinhaoWorkbench.exe`.** Use any writable folder. Keep the other files beside the executable.
 2. **Connect a model in Settings.** Enter an OpenAI-compatible API endpoint, model name, and key; save and test the connection. Technical work and text work can use different models. Translation and proofreading share the text model. You can change the target language here.
@@ -116,7 +125,7 @@ This version is in public beta. Complex plugins, encrypted resources, dynamic te
 
 Report issues in [GitHub Issues](https://github.com/BlandaLin/pinhao/issues) with the version, steps, error message, and relevant screenshots. For missing text, identify the dialogue or menu; for terminology, include a few lines of context. **Redact keys and personal information. Keep complete games, private projects, and saves out of public reports.**
 
-[0.6.0 changes and known issues](docs/release-notes/v0.6.0.md#known-issues) · [Release notes](docs/release-notes/v0.6.0.md#english) · [Contributing](docs/CONTRIBUTING.md)
+[0.6.1 changes and known issues](docs/release-notes/v0.6.1.md#known-issues) · [Release notes](docs/release-notes/v0.6.1.md#english) · [Contributing](docs/CONTRIBUTING.md)
 
 ## Development
 

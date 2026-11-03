@@ -11,13 +11,13 @@
 <p align="center">中文 · <a href="README.en.md">English</a></p>
 
 <p align="center">
-  <a href="https://github.com/BlandaLin/pinhao/releases/tag/v0.6.0"><strong>下载中文版</strong></a> ·
-  <a href="https://github.com/BlandaLin/pinhao/releases/tag/v0.6.0">Download English</a> ·
+  <a href="https://github.com/BlandaLin/pinhao/releases/tag/v0.6.1"><strong>下载中文版</strong></a> ·
+  <a href="https://github.com/BlandaLin/pinhao/releases/tag/v0.6.1">Download English</a> ·
   <a href="#开始使用">开始使用</a> ·
   <a href="https://github.com/BlandaLin/pinhao/issues">反馈问题</a>
 </p>
 
-<p align="center">0.6.0 公开测试版 · Windows 10 / 11 x64 · 软件免费，自备模型 API</p>
+<p align="center">0.6.1 公开测试版 · Windows 10 / 11 x64 · 软件免费，自备模型 API</p>
 
 ![拼好汉化 0.5.8 中文界面：灯塔来信示例工程的制作总览](.github/media/overview.jpg)
 
@@ -33,7 +33,16 @@
 
 **导入游戏 → 提取文字 → 翻译与校对 → 生成成品 → 打开游戏检查**
 
-## 0.6.0 更新
+## 0.6.1 更新
+
+- **修正文字分批持续变小。** 不再用包含推理和固定开销的总输出用量推断正文大小；仍按完整语义单元和配置容量分批，真实截断只缩减受影响的请求。
+- **先收完回复，再统一验收。** 前言不会提前打断接收；正文、结束原因和已收到的用量先留存，再检查短标记、控制符、重复与竞争交稿。
+- **保留合格成果，恢复只补缺项。** 中断时保留明确闭合且通过检查的文字；下次请求前核对精准匹配的未结回复，避免丢失已落盘成果。校对仍须明确完成，不把截断尾块算作交稿。
+- **修正附加信息与进度反馈。** 术语、备注中的合法数组不再误判为正文标记；进度按正式接纳的文字计算。连续三次格式无进展后暂停未发送任务，已发送请求继续保存，可由用户手动继续。
+
+[完整更新、验证范围与已知问题](docs/release-notes/v0.6.1.md)
+
+## 0.6.0 历史更新
 
 - **文字请求改用短标记与纯文字分段。** 模型不再抄写长编号和 JSON 正文；校对只返回改文与完成标记，工程定位由软件保存。
 - **减少重复传输与返工。** 请求区分正文语境与工程证据，共用背景只发一份；中断时保存完整收到且通过检查的文字，恢复后补剩余内容。
@@ -41,14 +50,14 @@
 - **加强原生提取与回写。** 增加 CSV/TSV 单元格适配、Unity 语言列选择和已核对正文协议；补充 MV、RGSS、Godot 的静态显示来源追踪。归档支持分页索引和选定成员读取。
 - **补齐成品检查。** MV/MZ 自有插件使用静态注册；对已识别的名称逻辑依赖保留原名身份。JoiPlay 导出增加资源大小写、缺失项和音频格式预检。
 
-[完整更新与已知问题](docs/release-notes/v0.6.0.md)
+[0.6.0 完整更新与已知问题](docs/release-notes/v0.6.0.md)
 
 ## 开始使用
 
 | 界面版本 | Windows 下载 | 新配置的默认翻译目标 |
 | --- | --- | --- |
-| 中文 | [pinhao-0.6.0-Windows-x64.zip](https://github.com/BlandaLin/pinhao/releases/download/v0.6.0/pinhao-0.6.0-Windows-x64.zip) | 简体中文 |
-| English | [pinhao-0.6.0-en-Windows-x64.zip](https://github.com/BlandaLin/pinhao/releases/download/v0.6.0/pinhao-0.6.0-en-Windows-x64.zip) | 英语 |
+| 中文 | [pinhao-0.6.1-Windows-x64.zip](https://github.com/BlandaLin/pinhao/releases/download/v0.6.1/pinhao-0.6.1-Windows-x64.zip) | 简体中文 |
+| English | [pinhao-0.6.1-en-Windows-x64.zip](https://github.com/BlandaLin/pinhao/releases/download/v0.6.1/pinhao-0.6.1-en-Windows-x64.zip) | 英语 |
 
 1. **完整解压，运行 `PinhaoWorkbench.exe`。** 软件可以放在任意可写目录，不要只取出 EXE。
 2. **在“设置”连接模型。** 填写 OpenAI 兼容服务的 API 地址、模型名和密钥，保存后测试连接。技术任务与文字任务可使用不同模型；翻译和校对共用文字模型。目标语言也在这里修改。
@@ -116,7 +125,7 @@
 
 遇到问题，请在 [Issues](https://github.com/BlandaLin/pinhao/issues) 提供版本、操作步骤、错误提示和相关截图。漏字时指出具体对白或菜单；译名问题附几句上下文即可。**遮盖密钥和个人信息，不要公开上传整款游戏、私人工程或存档。**
 
-[0.6.0 更新与已知问题](docs/release-notes/v0.6.0.md#known-issues) · [English release notes](docs/release-notes/v0.6.0.md#english) · [反馈与贡献](docs/CONTRIBUTING.md)
+[0.6.1 更新与已知问题](docs/release-notes/v0.6.1.md#known-issues) · [English release notes](docs/release-notes/v0.6.1.md#english) · [反馈与贡献](docs/CONTRIBUTING.md)
 
 ## 开发
 

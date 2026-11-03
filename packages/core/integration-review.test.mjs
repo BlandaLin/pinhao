@@ -8,7 +8,7 @@ import { createStore } from './workspace-store.mjs';
 import { PROMPT_VERSION } from './provider.mjs';
 import { freshSemanticPreparation } from './semantic-state.mjs';
 import { sha256 } from '../exchange/index.mjs';
-import { textRequestLimits } from './text-capacity.mjs';
+import { textRequestLimits, assertTextRequestCapacity } from './text-capacity.mjs';
 
 const parent = path.resolve('local/integration-review-tests');
 await mkdir(parent, { recursive: true });
@@ -144,7 +144,8 @@ test('restored oversized terminology prerequisites are not sent and do not block
   const raw = Array.from({ length: 8 }, (_, id) => ({ id: `term-${id}`, source: `Artifact ${id}`, kind: 'database_name', tokens: [],
     context: { file: 'Skills.json', record: id, scene: `distinct evidence ${id} `.repeat(250) } }));
   const f = await fixture(t, { units: raw, provider: async (args, payload) => {
-    requests.push({ task: payload.task, size: args.system.length + args.prompt.length, limit: textRequestLimits(args.connection).maxCharacters });
+    const capacity = assertTextRequestCapacity({ connection: args.connection, system: args.system, prompt: args.prompt });
+    requests.push({ task: payload.task, size: args.system.length + args.prompt.length, limit: textRequestLimits(args.connection).maxCharacters, capacity });
     assert.equal(payload.task, 'translation');
     return { records: payload.units.map(unit => ({ id: unit.id, translation: `条目${unit.source.match(/\d+/)[0]}` })) };
   } });
@@ -163,7 +164,7 @@ test('restored oversized terminology prerequisites are not sent and do not block
   const done = await finish(f.service, f.project.id);
   assert.equal(done.status, 'completed', done.lastError);
   assert.ok(requests.length > 0); assert.ok(requests.every(request => request.task === 'translation'));
-  assert.ok(requests.every(request => request.size <= request.limit), JSON.stringify(requests));
+  assert.ok(requests.every(request => request.capacity.estimatedInputTokens + request.capacity.maxOutputTokens <= request.capacity.contextWindow), JSON.stringify(requests));
   const inspect = createStore(path.join(f.root, 'profile'));
   try {
     assert.equal(inspect.tasks(f.project.id).find(task => task.id === 'old-large-task').status, 'cancelled');
@@ -238,7 +239,7 @@ test('repeated evidence questions stop at a finite round limit and retain a visi
   const f = await fixture(t, { provider: async () => { calls++; return { records: [], evidenceRequests: [{ query: { text: 'unresolved' } }] }; } });
   await f.service.startProject({ projectId: f.project.id });
   const done = await finish(f.service, f.project.id);
-  assert.equal(calls, 5); assert.equal(done.status, 'paused');
+  assert.equal(calls, 3); assert.equal(done.status, 'paused');
   assert.ok(done.issues.some(issue => issue.category === 'semantic-evidence'));
   assert.equal((await f.service.listText({ projectId: f.project.id })).units[0].translation, 'A quiet room.');
 });
@@ -308,9 +309,9 @@ test('a replacement model receives a new evidence window while retaining prior q
       : { records: [], evidenceRequests: [{ query: { text: 'unresolved' } }] };
   } });
   await f.service.startProject({ projectId: f.project.id });
-  assert.equal((await finish(f.service, f.project.id)).status, 'paused'); assert.equal(calls, 5);
+  assert.equal((await finish(f.service, f.project.id)).status, 'paused'); assert.equal(calls, 3);
   const settings = (await f.service.snapshot()).settings;
   settings.connection.model = 'another-neutral-model'; await f.service.saveSettings(settings); changed = true;
   await f.service.startProject({ projectId: f.project.id });
-  assert.equal((await finish(f.service, f.project.id)).status, 'completed'); assert.equal(calls, 6);
+  assert.equal((await finish(f.service, f.project.id)).status, 'completed'); assert.equal(calls, 4);
 });

@@ -41,7 +41,7 @@ const unit = (scene, index) => ({
 const independentRequestUnit = (scene, index) => {
   const row = unit(scene, index);
   // Distinct scene evidence keeps these requests independent after prompt deduplication.
-  return { ...row, context: { ...row.context, scene: `Neutral ${scene} scene evidence. `.repeat(1024) } };
+  return { ...row, context: { ...row.context, scene: `Neutral ${scene} scene evidence. `.repeat(4096) } };
 };
 const recordsFor = payload => payload.units.map(item => ({
   id: item.id, translation: `translated ${item.source}`, notes: '',
@@ -101,7 +101,7 @@ async function fixture(t, units, provider, concurrency = 2) {
   });
   const settings = defaultSettings();
   settings.connection.model = 'local-recovery-fixture';
-  // Complete 32k scene references fit separately, but two cannot share this declared window.
+  // Complete 120k scene references fit separately, but two cannot share this declared window.
   settings.connection.contextWindow = 65536;
   settings.connection.maxOutputTokens = 8192;
   settings.proofreading = false;
@@ -278,7 +278,7 @@ test('an edit during a request preserves manual text without redispatching its o
   assert(rows.filter(item => item.id !== manual.id).every(item => item.translation === `translated ${item.source}`));
 });
 
-test('onRecords candidates survive interruption before the provider returns its final response', async t => {
+test('terminally validated error records survive interruption without streaming admission', async t => {
   const entered = defer();
   const requests = [];
   let recovered = false;
@@ -289,9 +289,9 @@ test('onRecords candidates survive interruption before the provider returns its 
     const records = recordsFor(payload);
     if (!recovered) {
       checkpointId = records[0].id;
-      await args.onRecords?.([records[0]]);
       entered.resolve();
-      await waitForAbort(args.signal);
+      try { await waitForAbort(args.signal); }
+      catch (error) { throw Object.assign(new Error(error.message), { completedRecords: [records[0]] }); }
     }
     return { records, finishReason: 'stop' };
   }, 1);

@@ -4,8 +4,36 @@ import { createServer } from 'node:http';
 import { mkdtemp, readFile, readdir, rm, writeFile, unlink, symlink } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { createRequestArtifact, readRequestArtifact, resolveRequestMaterial, redactRequestMaterial } from './request-artifacts.mjs';
+import { createRequestArtifact, readRequestArtifact, resolveRequestMaterial, redactRequestMaterial, readUnfinishedTextArtifact, textRequestBindingHash } from './request-artifacts.mjs';
 import { sdkProvider } from './provider.mjs';
+
+test('unfinished capture replays only the verified exact prefix bound to this request', async t => {
+  const root = await mkdtemp(path.join(tmpdir(), 'pinhao-crash-capture-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const request = { system: 'Neutral fixture', prompt: 'A', textRecovery: { revision: 2, dependencyHash: 'fixture' } };
+  const artifact = await createRequestArtifact({ directory: root, requestId: 'crashed', request });
+  const directory = artifact.reference().directory, expectedRequestHash = textRequestBindingHash(request);
+  await artifact.observe({ type: 'text-delta', text: '[u1]\nclosed\n[u2]\nunflushed' });
+  assert.deepEqual(await readUnfinishedTextArtifact({ directory, expectedRequestHash }), {
+    text: '[u1]\nclosed\n[u2]\n', finishReason: 'interrupted', exact: true, tailMayBeMissing: true,
+  });
+  assert.equal(await readUnfinishedTextArtifact({ directory, expectedRequestHash: textRequestBindingHash({ ...request, prompt: 'changed' }) }), undefined);
+  await writeFile(path.join(directory, 'final.txt'), '[u1]\nforged\n[u2]\n');
+  assert.equal(await readUnfinishedTextArtifact({ directory, expectedRequestHash }), undefined);
+});
+
+test('redacted and terminal captures are never replayable as exact unfinished bodies', async t => {
+  const root = await mkdtemp(path.join(tmpdir(), 'pinhao-replay-redacted-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const request = { prompt: 'Neutral' }, expectedRequestHash = textRequestBindingHash(request);
+  for (const redacted of [false, true]) {
+    const artifact = await createRequestArtifact({ directory: root, requestId: String(redacted), request, secrets: ['neutral-secret'] });
+    await artifact.observe({ type: 'text-delta', text: redacted ? '[u1]\nneutral-secret\n[完成]\n' : '[u1]\nsafe\n[完成]\n' });
+    const directory = artifact.reference().directory;
+    if (!redacted) await artifact.finish({ finishReason: 'stop' });
+    assert.equal(await readUnfinishedTextArtifact({ directory, expectedRequestHash }), undefined);
+  }
+});
 
 test('default evidence retains the final answer once, without raw transport, reasoning or repeated request bodies', async t => {
   const root = await mkdtemp(path.join(tmpdir(), 'pinhao-request-artifact-'));
@@ -33,7 +61,7 @@ test('default evidence retains the final answer once, without raw transport, rea
   const recordedCeiling = actualRequest.max_tokens ?? actualRequest.max_completion_tokens;
   assert.ok(Number.isInteger(recordedCeiling) && recordedCeiling > 0,
     `the actual HTTP body carries a positive output ceiling, got ${JSON.stringify({ max_tokens: actualRequest.max_tokens, max_completion_tokens: actualRequest.max_completion_tokens })}`);
-  assert.deepEqual((await readdir(reference.directory)).sort(), ['events.jsonl', 'final.txt', 'request.json', 'result.json']);
+  assert.deepEqual((await readdir(reference.directory)).sort(), ['capture.json', 'events.jsonl', 'final.txt', 'request.json', 'result.json']);
   const stored = JSON.parse(await readFile(path.join(reference.directory, 'result.json'), 'utf8'));
   assert.equal(stored.parsedResult, undefined);
   assert.equal(stored.summary.records, 1);

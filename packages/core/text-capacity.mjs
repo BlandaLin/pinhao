@@ -32,68 +32,11 @@ function outputShape(units, role = 'translation') {
   return { body, framing, full: body + framing };
 }
 
-function profileKey({ connection = {}, role = 'translation', targetLanguage = 'zh-Hans' }) {
-  let endpoint;
-  try {
-    endpoint = new URL(connection.baseUrl ?? connection.url);
-    if (!['http:', 'https:'].includes(endpoint.protocol) || !connection.model) return;
-    endpoint.username = ''; endpoint.password = ''; endpoint.search = ''; endpoint.hash = '';
-    endpoint.pathname = endpoint.pathname.replace(/\/chat\/completions\/?$/, '').replace(/\/+$/, '');
-  } catch { return; }
-  const limits = textRequestLimits(connection);
-  return JSON.stringify([endpoint.toString(), connection.model, connection.reasoning ?? 'auto', role, targetLanguage,
-    limits.contextWindow, limits.maxOutputTokens]);
-}
-
-/** Ephemeral packing hints, never provider limits or evidence of translation/review quality. */
-export function createTextCapacityPlanner({ maxProfiles = 64, maxSamples = 8, minSamples = 3 } = {}) {
-  maxProfiles = Math.min(64, positive(maxProfiles, 64) || 64);
-  minSamples = Math.max(3, Math.min(8, positive(minSamples, 3) || 3));
-  maxSamples = Math.max(minSamples, Math.min(8, positive(maxSamples, 8) || 8));
-  const profiles = new Map();
-  const get = key => {
-    const entry = profiles.get(key);
-    if (entry) { profiles.delete(key); profiles.set(key, entry); }
-    return entry;
-  };
-  return {
-    observe({ connection, role = 'translation', targetLanguage, units = [], outputTokens, complete, validated, finishReason, truncated = false }) {
-      const failed = truncated === true || finishReason === 'length';
-      if (!failed && !(complete === true && validated === true && finishReason === 'stop'
-          && Number.isSafeInteger(outputTokens) && outputTokens > 0 && units.length)) return false;
-      const key = profileKey({ connection, role, targetLanguage });
-      if (!key) return false;
-      const entry = get(key) ?? { samples: [], boost: 1 };
-      if (failed) {
-        entry.boost *= Math.max(1, ...entry.samples) * 1.25;
-        entry.samples = [];
-      }
-      else {
-        entry.samples.push(outputTokens / Math.max(1, outputShape(units, role).full));
-        if (entry.samples.length > maxSamples) entry.samples.shift();
-      }
-      profiles.set(key, entry);
-      if (profiles.size > maxProfiles) profiles.delete(profiles.keys().next().value);
-      return true;
-    },
-    estimate({ connection, role = 'translation', targetLanguage, units = [] }) {
-      const shape = outputShape(units, role), key = profileKey({ connection, role, targetLanguage }), entry = key && get(key);
-      if (!entry || entry.samples.length < minSamples) return Math.ceil(shape.full * (entry?.boost ?? 1) + (entry?.boost > 1 ? 32 : 0));
-      const floor = shape.framing + shape.body * (role === 'proofreading' ? 0.5 : 0.75);
-      const highWater = shape.full * Math.max(...entry.samples) * 1.25;
-      return Math.ceil(Math.max(floor, highWater) * entry.boost + 32);
-    },
-  };
-}
-
-export function textRequestEstimate(prompt, units, limits, { role = 'translation', connection, targetLanguage, capacityPlanner, fullRevision = false } = {}) {
+export function textRequestEstimate(prompt, units, limits, { role = 'translation' } = {}) {
   const estimatedInputTokens = estimateTextRequestInput(prompt);
   const shape = outputShape(units, role);
-  // Only the differential review protocol may use learned sparse-edit output sizes.
-  const planner = role !== 'proofreading' || prompt.responseProtocol ? capacityPlanner : undefined;
-  const planned = planner ? planner.estimate({ units, role, targetLanguage,
-    connection: { ...connection, contextWindow: limits.contextWindow, maxOutputTokens: limits.maxOutputTokens } }) : shape.full;
-  const estimatedOutputTokens = Math.max(fullRevision ? shape.full : 0, planned);
+  // Total billed output includes reasoning and is not a per-unit text-size sample.
+  const estimatedOutputTokens = shape.full;
   const reasoningReserve = Math.max(256, Math.ceil(limits.maxOutputTokens / 4));
   return { estimatedInputTokens, estimatedOutputTokens, estimatedFullOutputTokens: shape.full, reasoningReserve,
     overLimit: estimatedInputTokens + limits.maxOutputTokens > limits.contextWindow

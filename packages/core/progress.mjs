@@ -8,7 +8,7 @@
  * because a paused project has no useful wall-clock rate.
  */
 
-const DONE_STATUSES = new Set(['translated', 'proofread', 'skipped']);
+const DONE_STATUSES = new Set(['translated', 'proofread']);
 const PHASES = ['pending', 'translated', 'proofread', 'skipped'];
 const STALL_MS = 10 * 60 * 1000;
 const MINUTE = 60 * 1000;
@@ -26,6 +26,24 @@ function time(value) {
 
 const round1 = value => Math.round(value * 10) / 10;
 
+/** Only formal commit receipts establish which work this task actually delivered. */
+export function translationTaskCredit(task) {
+  if (task.role !== 'translation' || task.kind === 'glossary') return { unitIds: [], incomplete: false };
+  const scope = new Set((task.unitIds ?? []).filter(id => typeof id === 'string' && id));
+  const summary = task.commitSummary;
+  if (Array.isArray(summary?.unitIds)) {
+    const unitIds = [...new Set(summary.unitIds.filter(id => scope.has(id)))];
+    return { unitIds, incomplete: summary.creditIncomplete === true
+      || summary.unitIds.some(id => !scope.has(id)) || summary.committed > unitIds.length };
+  }
+  // Older complete receipts identify the whole scope; an older partial count does not.
+  if (scope.size && summary?.committed === scope.size && summary.remaining === 0) {
+    return { unitIds: [...scope], incomplete: summary.creditIncomplete === true };
+  }
+  return { unitIds: [], incomplete: summary?.creditIncomplete === true || summary?.committed > 0
+    || task.status === 'succeeded' && scope.size > 0 };
+}
+
 /** Concurrent requests share elapsed time; queueing and overnight pauses do not. */
 export function activeMilliseconds(intervals) {
   const sorted = intervals.filter(([start, end]) => Number.isFinite(start) && Number.isFinite(end) && end > start)
@@ -40,14 +58,15 @@ export function activeMilliseconds(intervals) {
 
 function creditedWork(tasks, statusOf, taskStats) {
   const projected = taskStats?.timing?.translation;
-  const unitIds = projected?.unitIds ?? tasks.filter(task => task.role !== 'proofreading' && task.role !== 'technical'
-    && task.kind !== 'glossary' && task.status === 'succeeded').flatMap(task => task.unitIds ?? []);
-  const intervals = projected?.intervals ?? tasks.filter(task => task.role !== 'proofreading' && task.role !== 'technical' && task.kind !== 'glossary')
+  const receipts = projected ? [] : tasks.map(translationTaskCredit);
+  const unitIds = projected?.unitIds ?? receipts.flatMap(receipt => receipt.unitIds);
+  const incomplete = projected?.creditIncomplete ?? receipts.some(receipt => receipt.incomplete);
+  const intervals = projected?.intervals ?? tasks.filter(task => task.role === 'translation' && task.kind !== 'glossary')
     .flatMap(task => task.requestHistory?.length ? task.requestHistory.map(request => [time(request.artifact?.sentAt), time(request.finishedAt)])
       : [[time(task.startedAt), time(task.finishedAt)]]);
   const credited = new Set(unitIds.filter(id => DONE_STATUSES.has(statusOf.get(id)))).size;
   const elapsedMs = activeMilliseconds(intervals);
-  return { elapsedMs, credited, perUnitMs: credited && elapsedMs ? elapsedMs / credited : null };
+  return { elapsedMs, credited, incomplete, perUnitMs: credited && elapsedMs && !incomplete ? elapsedMs / credited : null };
 }
 
 const phaseNames = { translation: '正在翻译', scene: '场景校对中', consistency: '人物与译名检查',
@@ -77,10 +96,10 @@ export function estimateProgress(units, tasks, { now = Date.now(), taskStats, ph
   const active = (counts.running ?? 0) > 0 || (counts.queued ?? 0) > 0;
   const pausedAll = projectStatus === 'paused' || (!projectStatus && !active && (counts.paused ?? 0) > 0);
 
-  const { elapsedMs, credited, perUnitMs } = creditedWork(taskList, statusOf, taskStats);
-  const throughput = credited && elapsedMs > 0 ? round1(credited / (elapsedMs / MINUTE)) : null;
+  const { elapsedMs, credited, incomplete, perUnitMs } = creditedWork(taskList, statusOf, taskStats);
+  const throughput = credited && elapsedMs > 0 && !incomplete ? round1(credited / (elapsedMs / MINUTE)) : null;
   // 20/100/500 land in the lower bucket; tiny samples never produce an ETA.
-  const confidence = credited < 20 || !elapsedMs ? 'none' : credited <= 100 ? 'low' : credited <= 500 ? 'medium' : 'high';
+  const confidence = incomplete || credited < 20 || !elapsedMs ? 'none' : credited <= 100 ? 'low' : credited <= 500 ? 'medium' : 'high';
   const etaMs = confidence !== 'none' && perUnitMs !== null && remaining > 0 ? Math.round(remaining * perUnitMs) : null;
 
   const blockers = [];

@@ -79,7 +79,6 @@ export function packRequestBatches(groups, {
   referenceSelector,
   story,
   connection,
-  capacityPlanner,
   limits = connection ? textRequestLimits(connection) : undefined,
   maxCharacters = limits?.maxCharacters ?? REQUEST_BATCH_LIMITS.maxCharacters,
   maxUnits = limits?.maxUnits ?? REQUEST_BATCH_LIMITS.maxUnits,
@@ -96,14 +95,14 @@ export function packRequestBatches(groups, {
     const prompt = taskPrompt(role, units, targetLanguage, selectReferences([units]), glossaryForUnits(units),
       { ...options, story: options.story ?? storyMaterialEntrypoints(story, units), maxCharacters });
     return limits ? textRequestEstimate(prompt, units, limits,
-      { role, connection, targetLanguage, capacityPlanner }).overLimit : requestPromptCharacters(prompt) > maxCharacters;
+      { role }).overLimit : requestPromptCharacters(prompt) > maxCharacters;
   };
   const checkSingle = units => {
     if (!limits) return;
     const options = (typeof promptOptions === 'function' ? promptOptions(units) : promptOptions) ?? {};
     const prompt = taskPrompt(role, units, targetLanguage, selectReferences([units]), glossaryForUnits(units),
       { ...options, story: options.story ?? storyMaterialEntrypoints(story, units), maxCharacters });
-    const estimate = textRequestEstimate(prompt, units, limits, { role, connection, targetLanguage, capacityPlanner, fullRevision: true });
+    const estimate = textRequestEstimate(prompt, units, limits, { role });
     if (estimate.overLimit) throw textGroupCapacityError(units, estimate, limits);
   };
   const batches = [];

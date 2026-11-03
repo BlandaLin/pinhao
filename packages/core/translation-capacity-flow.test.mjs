@@ -88,17 +88,76 @@ test('truncated translation keeps completed records and shrinks only remaining i
     const payload = args.wire.payload; calls.push({ ids: payload.units.map(unit => unit.id), model: args.connection.model });
     if (calls.length === 1) {
       const complete = records(payload).slice(0, 2); kept.push(...complete.map(record => record.id));
-      await args.onRecords(complete);
-      throw Object.assign(new Error('Deterministic incomplete response.'), { code: 'MODEL_OUTPUT_TRUNCATED', transportRequests: 1 });
+      throw Object.assign(new Error('Deterministic incomplete response.'), { code: 'MODEL_OUTPUT_TRUNCATED', transportRequests: 1, completedRecords: complete });
     }
     return { records: records(payload), transportRequests: 1 };
   } });
   await f.start(); await complete(f);
-  assert.equal(calls[0].ids.length, 8); assert.ok(calls[1].ids.length <= 3);
+  assert.equal(calls[0].ids.length, 8); assert.ok(calls[1].ids.length <= calls[0].ids.length / 2);
   assert.ok(calls.slice(1).every(call => call.ids.every(id => !kept.includes(id))));
   assert.ok(calls.every(call => call.model === 'neutral-selected-model'));
   assert.equal(new Set(calls.slice(1).flatMap(call => call.ids)).size, 6);
   assert.ok((await f.texts()).every(unit => unit.status === 'translated'));
+  assert.deepEqual(f.tasks().filter(task => task.role === 'translation').flatMap(task => task.commitSummary.unitIds).sort(),
+    (await f.texts()).map(unit => unit.id).sort(), 'Only formally accepted IDs establish translation throughput');
+});
+
+test('fixed reasoning usage cannot shrink later ordinary service requests', async t => {
+  const units = rows(300), calls = [];
+  units.forEach((unit, index) => { unit.source = `A neutral sentence ${String(index).padStart(3, '0')}.`; });
+  const f = await fixture(t, { units, connection: { contextWindow: 32768, maxOutputTokens: 1200 }, provider: async args => {
+    calls.push(args.wire.payload.units.map(unit => unit.id));
+    return { records: records(args.wire.payload), finishReason: 'stop', transportRequests: 1,
+      usage: { inputTokens: 500, outputTokens: 1100, totalTokens: 1600 },
+      rawUsage: { prompt_tokens: 500, completion_tokens: 1100, total_tokens: 1600,
+        completion_tokens_details: { reasoning_tokens: 800 } } };
+  } });
+  await f.start(); await complete(f);
+  assert.ok(calls.length > 5, JSON.stringify(calls.map(ids => ids.length)));
+  assert.ok(calls.slice(0, -1).every(ids => ids.length === calls[0].length), JSON.stringify(calls.map(ids => ids.length)));
+  assert.equal(new Set(calls.flat()).size, units.length);
+  assert.equal(calls.flat().length, units.length, 'Fixed reasoning must not cause repurchased text');
+});
+
+test('one indivisible display group is not repurchased unchanged after truncation', async t => {
+  const units = rows(4), calls = [];
+  units.forEach(unit => { unit.context.syncGroup = 'one-intact-display'; });
+  const f = await fixture(t, { units, provider: async args => {
+    calls.push(args.wire.payload.units.map(unit => unit.id));
+    throw Object.assign(new Error('Output was truncated before a complete group.'), { code: 'MODEL_OUTPUT_TRUNCATED', transportRequests: 1 });
+  } });
+  await f.start();
+  await until(async () => (await f.detail()).status === 'paused', 'The intact group must pause rather than repeat an identical request');
+  assert.equal(calls.length, 1); assert.equal(calls[0].length, units.length);
+  assert.ok((await f.texts()).every(unit => unit.status === 'pending'));
+});
+
+test('a truncated optional tail cannot pause an already complete accepted translation', async t => {
+  const calls = [];
+  const f = await fixture(t, { provider: async args => {
+    calls.push(args.wire.payload.units.map(unit => unit.id));
+    throw Object.assign(new Error('Only the optional response tail was truncated.'), { code: 'MODEL_OUTPUT_TRUNCATED', transportRequests: 1, completedRecords: records(args.wire.payload) });
+  } });
+  await f.start(); await complete(f);
+  assert.equal(calls.length, 1);
+  assert.ok((await f.texts()).every(unit => unit.status === 'translated'));
+  assert.equal(f.tasks().find(task => task.role === 'translation').commitSummary.unitIds.length, 8);
+});
+
+test('a partially successful task records accepted IDs but pauses uncredited missing targets', async t => {
+  let requests = 0;
+  const f = await fixture(t, { provider: async args => {
+    if (++requests === 1) return { records: records(args.wire.payload).slice(0, 2), transportRequests: 1 };
+    throw Object.assign(new Error('The remaining response did not satisfy the text protocol.'), { code: 'INVALID_RESPONSE', transportRequests: 1 });
+  } });
+  await f.start(); await until(async () => (await f.detail()).status === 'paused', 'The format window must pause unresolved text');
+  const texts = await f.texts(), task = f.tasks().find(task => task.role === 'translation');
+  const accepted = texts.filter(unit => unit.status === 'translated').map(unit => unit.id);
+  assert.equal(accepted.length, 2); assert.equal(task.status, 'paused');
+  assert.deepEqual([...task.commitSummary.unitIds].sort(), accepted.sort());
+  assert.equal(task.commitSummary.committed, 2); assert.equal(task.commitSummary.remaining, 6);
+  assert.equal(texts.filter(unit => unit.status === 'pending').length, 6);
+  assert.ok(texts.filter(unit => unit.status === 'pending').every(unit => !task.commitSummary.unitIds.includes(unit.id)));
 });
 
 test('later text requests receive earlier accepted terminology as advisory context before final terminology collection', async t => {

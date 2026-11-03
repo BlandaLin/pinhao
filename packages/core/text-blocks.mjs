@@ -7,7 +7,25 @@ function blockReader({ markerDepth = 1 } = {}) {
   const left = '['.repeat(markerDepth), right = ']'.repeat(markerDepth);
   let pending = '', searched = 0, first = true, finished = false, current, body = [];
   let wrapper, wrapperClosed = false, started = false, completed = false, auxiliary = false, auxiliaryEnded = false;
+  let auxiliaryDepth = 0, auxiliaryQuoted = false, auxiliaryEscaped = false;
   const seen = new Set(), auxiliaryParts = [];
+  const errors = [], invalidated = new Set();
+  let protocolStarted = false, competing = false, wrapperTail = false;
+  const diagnose = (message, refs = []) => { errors.push(message); for (const ref of refs) invalidated.add(ref); };
+  const appendAuxiliary = text => {
+    auxiliaryParts.push(text);
+    // Track JSON boundaries incrementally; tuple lines inside the object are data, not text tags.
+    // JSON.parse below remains responsible for validating the complete optional object.
+    for (const char of text) {
+      if (auxiliaryQuoted) {
+        if (auxiliaryEscaped) auxiliaryEscaped = false;
+        else if (char === '\\') auxiliaryEscaped = true;
+        else if (char === '"') auxiliaryQuoted = false;
+      } else if (char === '"') auxiliaryQuoted = true;
+      else if (char === '{' || char === '[') auxiliaryDepth++;
+      else if (char === '}' || char === ']') auxiliaryDepth = Math.max(0, auxiliaryDepth - 1);
+    }
+  };
   const preserve = (error, rows) => {
     error.completedRows = rows.filter(row => !error.invalidatedRefs?.includes(row[0]));
     throw error;
@@ -21,8 +39,8 @@ function blockReader({ markerDepth = 1 } = {}) {
   const line = (content, ending, rows) => {
     const trimmed = content.replace(/^[ \t]+|[ \t]+$/g, '');
     if (wrapperClosed) {
-      if (trimmed) fail('正文代码围栏结束后不能附加说明文字。');
-      return;
+      if (!trimmed) return;
+      // Continue scanning after the wrapper: a second delivery must never hide duplicates.
     }
     if (!started && !trimmed) return;
     if (!started) {
@@ -30,35 +48,47 @@ function blockReader({ markerDepth = 1 } = {}) {
       const fence = /^(```|~~~)(?:text|plaintext)?$/i.exec(trimmed);
       if (fence) { wrapper = fence[1]; return; }
     }
+    if (!protocolStarted && !wrapper && /^(```|~~~)(?:text|plaintext)?$/i.test(trimmed)) { wrapper = trimmed.slice(0, 3); return; }
     if (wrapper && trimmed === wrapper) { wrapperClosed = true; return; }
     let marker;
-    if (trimmed.startsWith(left) && trimmed.endsWith(right)) {
+    if (!(auxiliary && !auxiliaryEnded && (auxiliaryDepth || auxiliaryQuoted))
+        && trimmed.startsWith(left) && trimmed.endsWith(right)) {
       const inner = trimmed.slice(left.length, -right.length);
       if (inner && !/[\[\]]/.test(inner)) marker = inner;
     }
     if (marker !== undefined) {
       if (/^u[1-9]\d*$/.test(marker)) {
+        protocolStarted = true;
+        if (completed || auxiliary || wrapperClosed) {
+          competing = true;
+          diagnose('完成标记或附加信息之后不能再返回正文。');
+        }
         if (seen.has(marker)) {
           close(rows);
-          fail('同一文字标记不能重复返回；对应条目需要重新确认。', { invalidatedRefs: [marker] });
+          diagnose('同一文字标记不能重复返回；对应条目需要重新确认。', [marker]);
+          current = marker; return;
         }
-        if (completed || auxiliary) fail('完成标记或附加信息之后不能再返回正文。');
         close(rows);
         seen.add(marker); current = marker; return;
       }
       if (marker === '\u5b8c\u6210') {
-        if (completed) fail('完成标记不能重复返回。');
+        protocolStarted = true;
+        if (completed) diagnose('完成标记不能重复返回。');
         close(rows); completed = true; auxiliaryEnded = auxiliary; return;
       }
       if (marker === '\u9644\u52a0\u4fe1\u606f') {
-        if (auxiliary) fail('附加信息只能返回一段。');
+        protocolStarted = true;
+        if (auxiliary) diagnose('附加信息只能返回一段。');
         close(rows); auxiliary = true; return;
       }
-      fail('返回了未知的独立标记；请只使用本次材料提供的文字标记和协议分隔标记。');
+      current = undefined; body = [];
+      diagnose('返回了未知的独立标记；请只使用本次材料提供的文字标记和协议分隔标记。');
+      return;
     }
-    if (auxiliary && !auxiliaryEnded) auxiliaryParts.push(content + ending);
+    if (wrapperClosed) { if (trimmed) wrapperTail = true; return; }
+    if (auxiliary && !auxiliaryEnded) appendAuxiliary(content + ending);
     else if (current !== undefined) body.push(content + ending);
-    else if (trimmed) fail('正文块之外不能附加说明文字；请按文字标记分块返回。');
+    else if (trimmed && protocolStarted && !wrapperClosed) diagnose('正文块之外不能附加说明文字；请按文字标记分块返回。');
   };
   const push = chunk => {
     if (finished) fail('文字接收已经结束，不能继续追加。');
@@ -84,15 +114,18 @@ function blockReader({ markerDepth = 1 } = {}) {
       if (pending.length) line(pending, '', rows);
       pending = ''; finished = true;
       if (normalFinish(finishReason)) {
-        if (wrapper && !wrapperClosed) fail('包裹正文的代码围栏尚未闭合。');
+        if (wrapper && !wrapperClosed) diagnose('包裹正文的代码围栏尚未闭合。');
         // One terminal EOL is framing, including at a clean bare EOF; extra EOLs remain text.
         close(rows);
       } else { current = undefined; body = []; }
+      if (!protocolStarted && (started || errors.length)) diagnose('没有找到合法文字协议区。');
+      if (competing) for (const ref of seen) invalidated.add(ref);
+      if (errors.length) fail([...new Set(errors)].join(' '), { invalidatedRefs: [...invalidated] });
     } catch (error) { preserve(error, rows); }
     return rows;
   };
   return { push, finish, get completed() { return completed; }, get auxiliary() { return auxiliary; },
-    get auxiliaryText() { return auxiliaryParts.join(''); } };
+    get auxiliaryText() { return auxiliaryParts.join(''); }, get wrapperTail() { return wrapperTail; } };
 }
 
 /** Only a following protocol marker closes a streamed block before a normal final EOF. */
@@ -107,13 +140,15 @@ export function textBlockScanner(options = {}) {
 export function parseTextBlocks(raw, { finishReason, review = false, markerDepth = 1 } = {}) {
   const reader = blockReader({ markerDepth });
   const rows = [];
+  let failure;
   try {
     rows.push(...reader.push(raw));
     rows.push(...reader.finish({ finishReason }));
   }
   catch (error) {
     error.completedRows = [...rows, ...(error.completedRows ?? [])].filter(row => !error.invalidatedRefs?.includes(row[0]));
-    throw error;
+    rows.splice(0, rows.length, ...error.completedRows);
+    failure = error;
   }
   const result = review ? { complete: reader.completed && normalFinish(finishReason), changes: rows, questions: [] } : { text: rows };
   const warnings = [];
@@ -148,5 +183,7 @@ export function parseTextBlocks(raw, { finishReason, review = false, markerDepth
   }
   if (review && !reader.completed) warn('校对需要独占一行的完成标记，才能确认全批已审阅。');
   if (warnings.length) result.responseRepair = { code: 'INVALID_RESPONSE', message: [...new Set(warnings)].join(' ') };
+  if (reader.wrapperTail) result.responseWarnings = [{ code: 'RESPONSE_WRAPPER_TRAILING_PROSE', message: '正文围栏后另有说明文字；未将其作为译文。' }];
+  if (failure) { failure.parsedResponse = result; throw failure; }
   return result;
 }

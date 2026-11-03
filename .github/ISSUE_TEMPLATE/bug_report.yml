@@ -11,7 +11,7 @@ body:
     attributes:
       label: Software Version / 软件版本
       description: 注明中英文版及 Windows 版本 / Include the Chinese or English edition and your Windows version.
-      placeholder: '0.6.0 English edition, Windows 11 x64'
+      placeholder: '0.6.1 English edition, Windows 11 x64'
     validations:
       required: true
   - type: input

@@ -4,6 +4,7 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { createStore } from './store.mjs';
+import { estimateProgress } from './progress.mjs';
 
 async function fixture(t) {
   const root = await mkdtemp(path.join(os.tmpdir(), 'pinhao-task-stats-'));
@@ -29,7 +30,8 @@ test('runtime counts cover the full queue while taskSummaries keeps its small pa
 
 test('timing projection retains actual send intervals but no source or credential material', async t => {
   const { store, task } = await fixture(t);
-  store.putTask('project', task(1, 'succeeded', { input: [{ source: 'PRIVATE_SOURCE' }], connection: { apiKey: 'PRIVATE_KEY' },
+  store.putTask('project', task(1, 'succeeded', { commitSummary: { committed: 1, remaining: 0 },
+    input: [{ source: 'PRIVATE_SOURCE' }], connection: { apiKey: 'PRIVATE_KEY' },
     requestHistory: [{ id: 'request', status: 'received', finishedAt: '2026-10-23T00:01:00.000Z',
       artifact: { sentAt: '2026-10-23T00:00:00.000Z' }, rawUsage: { privateData: 'PRIVATE_USAGE' } }] }));
   const stats = store.taskStats('project');
@@ -37,6 +39,31 @@ test('timing projection retains actual send intervals but no source or credentia
   assert.deepEqual(stats.timing.translation.intervals, [[Date.parse('2026-10-23T00:00:00.000Z'), Date.parse('2026-10-23T00:01:00.000Z')]]);
   assert.doesNotMatch(JSON.stringify(stats), /PRIVATE_/);
   assert.doesNotMatch(JSON.stringify(store.diagnosticStats('project')), /PRIVATE_/);
+});
+
+test('formal partial receipt credit agrees between warm, reopened and pure progress views', async t => {
+  const { root, store, task } = await fixture(t);
+  const delivered = Array.from({ length: 40 }, (_, index) => ({ id: `line-${index}`, status: 'translated' }));
+  const pending = Array.from({ length: 40 }, (_, index) => ({ id: `remaining-${index}`, status: 'pending' }));
+  const receipt = task(1, 'paused', { unitIds: [...delivered, ...pending].map(unit => unit.id),
+    commitSummary: { committed: 40, remaining: 40, unitIds: delivered.map(unit => unit.id) },
+    requestHistory: [{ artifact: { sentAt: 0 }, finishedAt: 60000 }] });
+  store.putTask('project', receipt);
+  const warm = store.taskStats('project');
+  assert.deepEqual(warm.timing.translation.unitIds, delivered.map(unit => unit.id));
+  assert.equal(warm.timing.translation.creditIncomplete, false);
+  const pure = estimateProgress([...delivered, ...pending], [receipt]);
+  assert.equal(pure.throughput, 40);
+  assert.equal(pure.etaMs, 60000);
+  const reopened = createStore(root);
+  try {
+    const cold = reopened.taskStats('project');
+    assert.deepEqual(cold, warm, 'SQL and in-memory projections preserve the same receipt');
+    assert.equal(estimateProgress([...delivered, ...pending], [], { taskStats: cold }).etaMs, pure.etaMs);
+    store.putTask('project', { ...receipt, commitSummary: { committed: 40, remaining: 40 } });
+    assert.equal(reopened.taskStats('project').timing.translation.creditIncomplete, true);
+    assert.equal(estimateProgress([...delivered, ...pending], [], { taskStats: reopened.taskStats('project') }).etaMs, null);
+  } finally { reopened.close(); }
 });
 
 test('diagnostics distinguish pre-send replanning, cancellation and failed sent requests', async t => {

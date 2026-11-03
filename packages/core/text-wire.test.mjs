@@ -302,7 +302,7 @@ test('shared context references bind content across continued reading notes and 
   assert.equal(resumed.prompt.split('A complete earlier scene.').length - 1, 1);
 });
 
-test('real SDK streaming checkpoints canonical host IDs from plain blocks without altering literal text', async t => {
+test('real SDK terminal results bind canonical host IDs from streamed plain blocks without altering literal text', async t => {
   const prompt = taskPrompt('translation', [units[0]], 'zh-Hans');
   const ref = refFor(prompt.wire, units[0].id), value = `完整\n\n{{name}} unit-canonical-a`;
   const body = `[${ref}]\n${value}\n[完成]`;
@@ -318,9 +318,9 @@ test('real SDK streaming checkpoints canonical host IDs from plain blocks withou
   });
   await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
   t.after(() => server.close());
-  const checkpointed = [];
-  const result = await sdkProvider({ connection: { baseUrl: `http://127.0.0.1:${server.address().port}/v1`, model: 'neutral', apiKey: 'neutral' }, ...prompt,
-    onRecords: rows => checkpointed.push(...rows) });
+  const result = await sdkProvider({ connection: { baseUrl: `http://127.0.0.1:${server.address().port}/v1`, model: 'neutral', apiKey: 'neutral' }, ...prompt });
   assert.deepEqual(result.records, [{ id: units[0].id, translation: value, notes: '' }]);
-  assert.deepEqual(checkpointed, result.records);
+  assert.equal(result.finishReason, 'stop');
+  assert.equal(result.usage.inputTokens, 10);
+  assert.equal(result.usage.outputTokens, 10);
 });

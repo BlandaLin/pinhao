@@ -146,10 +146,9 @@ export function createTextWire(payload, previous = {}) {
   const marker = value => '['.repeat(markerDepth) + value + ']'.repeat(markerDepth);
   const review = payload.task === 'proofreading' && Boolean(payload.responseProtocol);
   const format = review
-    ? `只返回需修改的标记和完整改文；本批逐条审完后，独占一行写 ${marker('完成')}。没有修改也必须明确完成；未审完不得声称完成。`
-    : `每项使用下方相同的独立标记行，下一行起写完整译文，最后独占一行写 ${marker('完成')}。正文不用 JSON、引号或空备注字段，保留原有换行，块间无需空行。`;
-  const example = payload.units[0] ? `${marker(targetRefs[0])}\n${review ? '完整改文' : '完整译文'}\n${marker('完成')}` : '';
-  const prompt = [`【交稿方式】\n${format}`,
+    ? `逐条审阅本次目标，只交需修改项：照抄该项独立标记行，下一行起写完整改文，每项一次。本批审完后独占一行写 ${marker('完成')}；没有修改也必须明确完成，未审完不得声称完成。`
+    : `逐项交付本次目标：照抄该项独立标记行，下一行起写完整译文，每项一次；最后独占一行写 ${marker('完成')}。`;
+  const prompt = [`【交稿方式】\n${format}\n只交正文，不写解释前言、示例或第二份交稿。保留完整语义与原有换行；正文不用 JSON、代码围栏或包裹引号，不填空备注。只读参考和材料入口不交稿。`,
     payload.capabilities ? `【按需能力】\n需要时在正文后另起一行写 ${marker('附加信息')}，下一行写一个 JSON 对象；不含 text、changes、reviewed 或 complete。示例中的“目标标记”须换成本次实际短标记。\n${payload.capabilities.replaceAll('$target', '目标标记')}` : '',
     section('统一译名', payload.glossary), section('已接纳译名候选，只读（非确认规则）', terminologyCandidates?.length ? {
       guidance: '已接纳文字中的实际译法，按人物与义项参考，不替代确认规则，不因多数票强制统一。译法内 query 查一处已接纳依据；条目 query 查所有原文用法，用 read 按游标续读。',
@@ -160,7 +159,7 @@ export function createTextWire(payload, previous = {}) {
     section('本轮校对范围', payload.reviewScope), section('本次补充材料', payload.evidenceResults),
     section('已读页面收据', payload.evidenceHistory), section('累计阅读笔记', payload.readingNotes), section('本次需要修正的问题', repair),
     payload.referenceOnly.length ? `【参考文字，只读】\n${payload.referenceOnly.map(block).join('\n\n')}` : '',
-    `【待处理文字】\n本次目标标记：${JSON.stringify(targetRefs)}。只对这些标记交付结果；前面的只读参考与材料入口不是目标。\n格式示例：\n${example}\n\n${payload.units.map(unit => block(unit).replace(`[${register(unit.id, true)}]\n`, `${marker(register(unit.id, true))}\n`)).join('\n\n')}`].filter(Boolean).join('\n');
+    `【待处理文字】\n本次目标标记：${JSON.stringify(targetRefs)}。\n\n${payload.units.map(unit => block(unit).replace(`[${register(unit.id, true)}]\n`, `${marker(register(unit.id, true))}\n`)).join('\n\n')}`].filter(Boolean).join('\n');
   return { version: TEXT_WIRE_VERSION, prompt, state: { entries, unitIds: [...unitIds], markerDepth }, targetIds: [...targets], review, payload };
 }
 

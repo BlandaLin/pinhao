@@ -45,16 +45,19 @@ async function finish(service, projectId) {
 
 test('exception recovery isolates divergent linked candidates and retains unrelated completed records', async t => {
   const raw = ['a', 'b', 'c'].map(id => ({ id, source: id === 'c' ? 'Unrelated.' : 'Shared title', tokens: [], kind: 'message', context: { file: 'scene.json', ...(id !== 'c' ? { syncGroup: 'title' } : {}) } }));
-  const f = await fixture(t, { units: raw, provider: async ({ onRecords }, payload) => {
-    onRecords(payload.units.map((unit, index) => ({ id: unit.id, translation: `分歧${index}` })));
-    throw Object.assign(new Error('Incomplete trailing JSON'), { code: 'INVALID_RESPONSE' });
+  const f = await fixture(t, { units: raw, provider: async (_args, payload) => {
+    throw Object.assign(new Error('Incomplete trailing JSON'), { code: 'INVALID_RESPONSE',
+      completedRecords: payload.units.map((unit, index) => ({ id: unit.id, translation: `分歧${index}` })) });
   } });
+  const prepared = createStore(f.dataDir);
+  try { prepared.put('projects', { ...prepared.one('projects', f.project.id), sampleValidation: { nativeStructure: 'passed' } }); }
+  finally { prepared.close(); }
   await f.service.startProject({ projectId: f.project.id });
   const done = await finish(f.service, f.project.id);
   const units = (await f.service.listText({ projectId: f.project.id })).units;
   assert.equal(units.filter(unit => unit.context.syncGroup).every(unit => unit.translation === 'Shared title'), true);
-  assert.equal(units.find(unit => unit.legacyId === 'c').status, 'translated');
-  assert.equal(done.status, 'completed');
+  assert.equal(units.find(unit => unit.legacyId === 'c').status, 'translated', JSON.stringify({ error: done.lastError, tasks: done.tasks }));
+  assert.equal(done.status, 'paused');
   assert.equal(await readFile(path.join(f.gameDir, 'original.txt'), 'utf8'), 'preserved original');
 });
 
@@ -75,14 +78,14 @@ test('zero-edit review records evidence issues without rewriting accepted transl
 test('explicit semantic equivalence reuses an accepted source for a pending occurrence', async t => {
   // The duplicate line carries a different term scope, so host-side fan-out deliberately skips it
   // (fanOutKeyFor includes semanticScope) and this exercises the model-declared equivalence path.
-  const raw = Array.from({ length: 18 }, (_, i) => ({ id: `line-${i}`, source: i === 16 ? 'A quiet room 0.' : `A quiet room ${i}.`, kind: 'message', tokens: [], context: { file: 'scene.json', ...(i === 16 ? { semanticScope: 'room-label' } : {}) } }));
+  const raw = Array.from({ length: 18 }, (_, i) => ({ id: `line-${i}`, source: (i === 16 ? 'A quiet room 0.' : `A quiet room ${i}.`).repeat(15), kind: 'message', tokens: [], context: { file: 'scene.json', ...(i === 16 ? { semanticScope: 'room-label' } : {}) } }));
   let sharedTarget, evidenceQueries = 0;
   const f = await fixture(t, { units: raw,
     // This case needs a separate target batch even when the chosen model can combine over 16 short rows.
-    settings: { connection: { baseUrl: 'http://localhost:1/v1', model: 'neutral', contextWindow: 32768, maxOutputTokens: 1024 } },
+    settings: { connection: { baseUrl: 'http://localhost:1/v1', model: 'neutral', contextWindow: 32768, maxOutputTokens: 900 } },
     provider: async (_args, payload) => {
     const records = payload.units.map(unit => ({ id: unit.id, translation: `中文 ${unit.source}` }));
-    if (payload.units[0].source === 'A quiet room 0.') {
+    if (payload.units[0].source.startsWith('A quiet room 0.')) {
       const source = payload.units[0];
       if (!payload.evidenceResults?.some(answer => answer.query?.text === source.source)) {
         evidenceQueries++;
